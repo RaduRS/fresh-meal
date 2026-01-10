@@ -50,6 +50,18 @@ export type PantryItem = {
   updated_at: string;
 };
 
+function roundCaloriesKcal(value: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n));
+}
+
+function roundMacroG(value: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n * 10) / 10);
+}
+
 export async function listPantryItems() {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
@@ -93,6 +105,11 @@ export async function insertPantryItem(input: {
   imageUrl?: string | null;
 }) {
   const supabase = createSupabaseAdminClient();
+  const caloriesKcal100g = roundCaloriesKcal(input.caloriesKcal100g);
+  const proteinG100g = roundMacroG(input.proteinG100g);
+  const carbsG100g = roundMacroG(input.carbsG100g);
+  const fatG100g = roundMacroG(input.fatG100g);
+  const sugarG100g = roundMacroG(input.sugarG100g);
   const { data, error } = await supabase
     .from("pantry_items")
     .insert({
@@ -100,11 +117,11 @@ export async function insertPantryItem(input: {
       category: input.category,
       quantity: input.quantity,
       quantity_unit: input.quantityUnit ?? "count",
-      calories_kcal_100g: input.caloriesKcal100g,
-      protein_g_100g: input.proteinG100g,
-      carbs_g_100g: input.carbsG100g,
-      fat_g_100g: input.fatG100g,
-      sugar_g_100g: input.sugarG100g,
+      calories_kcal_100g: caloriesKcal100g,
+      protein_g_100g: proteinG100g,
+      carbs_g_100g: carbsG100g,
+      fat_g_100g: fatG100g,
+      sugar_g_100g: sugarG100g,
       barcode: input.barcode ?? null,
       image_url: input.imageUrl ?? null,
     })
@@ -128,6 +145,11 @@ export async function updatePantryItem(input: {
   sugarG100g: number;
 }) {
   const supabase = createSupabaseAdminClient();
+  const caloriesKcal100g = roundCaloriesKcal(input.caloriesKcal100g);
+  const proteinG100g = roundMacroG(input.proteinG100g);
+  const carbsG100g = roundMacroG(input.carbsG100g);
+  const fatG100g = roundMacroG(input.fatG100g);
+  const sugarG100g = roundMacroG(input.sugarG100g);
   const { error } = await supabase
     .from("pantry_items")
     .update({
@@ -135,11 +157,11 @@ export async function updatePantryItem(input: {
       category: input.category,
       quantity: input.quantity,
       quantity_unit: input.quantityUnit ?? "count",
-      calories_kcal_100g: input.caloriesKcal100g,
-      protein_g_100g: input.proteinG100g,
-      carbs_g_100g: input.carbsG100g,
-      fat_g_100g: input.fatG100g,
-      sugar_g_100g: input.sugarG100g,
+      calories_kcal_100g: caloriesKcal100g,
+      protein_g_100g: proteinG100g,
+      carbs_g_100g: carbsG100g,
+      fat_g_100g: fatG100g,
+      sugar_g_100g: sugarG100g,
     })
     .eq("id", input.id)
     .is("deleted_at", null);
