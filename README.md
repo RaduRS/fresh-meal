@@ -1,5 +1,8 @@
 # FreshMeal - Smart Pantry & Recipe Suggestion App
 
+# CRITICAL !
+Always keep in mind DRY and separation of concerns , great design , and best coding practices.
+
 ## Project Overview
 
 FreshMeal is a mobile-first Progressive Web App (PWA) that helps users discover healthy recipes based on ingredients they actually have at home. Users scan barcodes or take photos of food items to build their pantry inventory, then get AI-powered recipe suggestions filtered by meal type, serving size, and dietary preferences.
