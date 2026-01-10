@@ -76,8 +76,10 @@ Rules:
 - name: for fresh items, use the most specific common UK name visible (e.g., "Cherry Tomatoes" not just "Tomatoes"), properly capitalized. If unsure, use the generic name
 - quantityUnit: one of "count","g","ml"
 - quantity: number. This is the amount the user has.
-- If the pack size/volume is visible (e.g., "1kg", "500g", "2L", "750ml"), convert it to quantity+quantityUnit (kg->g, L->ml)
-- If the pack size is not visible, set quantityUnit="count" and quantity=1
+- For packaged items, read the NET WEIGHT / NET VOLUME from packaging (e.g., "1kg", "500g", "2L", "750ml") and convert it to quantity+quantityUnit (kg->g, L->ml). This is usually printed on the front or near nutrition facts
+- Use quantityUnit="count" only for naturally-counted items (e.g., eggs, bananas, individual fruits/veg) or if the packaging clearly specifies a count (e.g., "12 eggs")
+- If you cannot read weight/volume for a packaged dry good or drink, still choose the correct unit ("g" for dry goods like rice/pasta/cereal, "ml" for liquids) and estimate a typical size (rice often 1000g; pasta often 500g; cereal often 500g; drinks often 330ml/500ml/1000ml)
+- If the item is not in original packaging (e.g., dry goods in a jar/tupperware/bowl), estimate the amount the user has using visual volume/level and common sense; prefer "g" for dry goods and "ml" for liquids. Example: a medium jar half-full of rice might be ~300g
 - nutritionPer100g: include if either (a) nutrition label is readable, or (b) the food is common and you can provide a reasonable best-effort estimate. Use grams for macros and kcal for calories. If you cannot provide a reasonable estimate, set it to null
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
@@ -206,11 +208,19 @@ Rules:
         ? nutritionPer100g
         : existing.nutritionPer100g;
 
+    const mergedUnit =
+      existing.quantityUnit === "count" && unit !== "count"
+        ? unit
+        : unit === "count" && existing.quantityUnit !== "count"
+        ? existing.quantityUnit
+        : existing.confidence >= confidence
+        ? existing.quantityUnit
+        : unit;
+
     deduped.set(key, {
       name: existing.name.length >= name.length ? existing.name : name,
       quantity: Math.max(existing.quantity, quantity),
-      quantityUnit:
-        existing.confidence >= confidence ? existing.quantityUnit : unit,
+      quantityUnit: mergedUnit,
       nutritionPer100g: mergedNutrition,
       confidence: Math.max(existing.confidence, confidence),
     });
