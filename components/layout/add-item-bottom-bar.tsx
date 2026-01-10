@@ -19,10 +19,10 @@ export function AddItemBottomBar(props: {
           </Button>
 
           <Button
+            asChild
             variant={active === "barcode" ? "default" : "secondary"}
-            disabled
           >
-            Barcode
+            <Link href="/add-item/barcode">Barcode</Link>
           </Button>
 
           <Button

@@ -65,7 +65,7 @@ export async function detectPantryItemsFromImage(input: {
 Rules:
 - items: include only food items you are confident about
 - name: for packaged items, return the product name as a single item (include brand if visible). Do not split one package into multiple ingredients
-- name: for fresh items, use a short common UK name, properly capitalized
+- name: for fresh items, use the most specific common UK name visible (e.g., "Cherry Tomatoes" not just "Tomatoes"), properly capitalized. If unsure, use the generic name
 - quantity: integer, use 1 if unclear
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity

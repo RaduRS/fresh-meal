@@ -62,12 +62,16 @@ export async function insertPantryItem(input: {
   name: string;
   category: PantryCategory;
   quantity: number;
+  barcode?: string | null;
+  imageUrl?: string | null;
 }) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase.from("pantry_items").insert({
     name: input.name,
     category: input.category,
     quantity: input.quantity,
+    barcode: input.barcode ?? null,
+    image_url: input.imageUrl ?? null,
   });
 
   if (error) throw error;
