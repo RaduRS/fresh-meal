@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { insertPantryItem, softDeletePantryItem } from "@/lib/pantry";
+import { ensurePantryItemImage } from "@/lib/pantry-images";
 
 function parseQuantity(value: string): number {
   const n = Number(value);
@@ -24,7 +25,10 @@ export async function addPantryItemAction(formData: FormData) {
 
   const category = await suggestPantryCategory(name);
 
-  await insertPantryItem({ name, category, quantity });
+  const id = await insertPantryItem({ name, category, quantity });
+  if (id) {
+    await ensurePantryItemImage({ id }).catch(() => null);
+  }
   revalidatePath("/inventory");
   redirect("/inventory");
 }

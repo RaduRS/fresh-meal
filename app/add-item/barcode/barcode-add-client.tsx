@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useMemo, useState } from "react";
+import { useFormStatus } from "react-dom";
 
 import { addBarcodeItemAction } from "./actions";
 import { BarcodeScanner } from "./barcode-scanner";
@@ -32,6 +33,15 @@ function readLookup(data: unknown): LookupResult | null {
   const brand = typeof obj.brand === "string" ? obj.brand : null;
   if (!barcode.trim() || !name.trim()) return null;
   return { barcode, name, imageUrl, brand };
+}
+
+function BarcodeAddSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" className="w-full" disabled={pending}>
+      {pending ? "Adding…" : "Add item"}
+    </Button>
+  );
 }
 
 export function BarcodeAddClient() {
@@ -87,7 +97,7 @@ export function BarcodeAddClient() {
     <div className="grid grid-cols-1 gap-4">
       <BarcodeScanner
         onDetected={(code) => {
-          lookup(code);
+          void lookup(code);
         }}
       />
 
@@ -166,9 +176,7 @@ export function BarcodeAddClient() {
               />
             </div>
 
-            <Button type="submit" className="w-full">
-              Add item
-            </Button>
+            <BarcodeAddSubmitButton />
           </div>
         </form>
       ) : null}

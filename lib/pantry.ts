@@ -66,15 +66,20 @@ export async function insertPantryItem(input: {
   imageUrl?: string | null;
 }) {
   const supabase = createSupabaseAdminClient();
-  const { error } = await supabase.from("pantry_items").insert({
-    name: input.name,
-    category: input.category,
-    quantity: input.quantity,
-    barcode: input.barcode ?? null,
-    image_url: input.imageUrl ?? null,
-  });
+  const { data, error } = await supabase
+    .from("pantry_items")
+    .insert({
+      name: input.name,
+      category: input.category,
+      quantity: input.quantity,
+      barcode: input.barcode ?? null,
+      image_url: input.imageUrl ?? null,
+    })
+    .select("id")
+    .single();
 
   if (error) throw error;
+  return String((data as { id?: unknown } | null)?.id ?? "");
 }
 
 export async function softDeletePantryItem(id: string) {

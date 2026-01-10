@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
+import { ensurePantryItemImage } from "@/lib/pantry-images";
 
 type AddItemInput = { name: string; quantity: number };
 
@@ -41,13 +42,22 @@ export async function POST(req: Request) {
       const name = await normalizePantryItemName(item.name);
       if (!name) continue;
       const category = await suggestPantryCategory(name);
-      await insertPantryItem({ name, category, quantity: item.quantity });
+      const id = await insertPantryItem({
+        name,
+        category,
+        quantity: item.quantity,
+      });
+      if (id) {
+        await ensurePantryItemImage({ id }).catch(() => null);
+      }
       added += 1;
     }
 
     return NextResponse.json({ ok: true, added });
   } catch {
-    return NextResponse.json({ error: "Could not save items. Try again." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not save items. Try again." },
+      { status: 500 }
+    );
   }
 }
-

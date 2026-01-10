@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { deletePantryItemAction } from "./actions";
 import { listPantryItems } from "@/lib/pantry";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
@@ -33,14 +35,28 @@ export default async function InventoryPage() {
                 key={item.id}
                 className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
               >
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {item.name}
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                    {item.image_url ? (
+                      <Image
+                        src={item.image_url}
+                        alt={item.name}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                    ) : null}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">{item.category}</span>
-                    <span>•</span>
-                    <span>Qty {item.quantity}</span>
+
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">
+                      {item.name}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="truncate">{item.category}</span>
+                      <span>•</span>
+                      <span>Qty {item.quantity}</span>
+                    </div>
                   </div>
                 </div>
 
