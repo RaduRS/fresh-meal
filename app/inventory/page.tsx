@@ -5,6 +5,8 @@ import { listPantryItems } from "@/lib/pantry";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
 import { Button } from "@/components/ui/button";
 
+export const dynamic = "force-dynamic";
+
 export default async function InventoryPage() {
   const items = await listPantryItems();
 

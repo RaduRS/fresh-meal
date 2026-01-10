@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
@@ -53,6 +54,7 @@ export async function POST(req: Request) {
       added += 1;
     }
 
+    revalidatePath("/inventory");
     return NextResponse.json({ ok: true, added });
   } catch {
     return NextResponse.json(
