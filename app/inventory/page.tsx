@@ -1,9 +1,7 @@
-import Image from "next/image";
-
 import { deletePantryItemAction } from "./actions";
 import { listPantryItems } from "@/lib/pantry";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
-import { Button } from "@/components/ui/button";
+import { InventoryClient } from "./inventory-client";
 
 export const dynamic = "force-dynamic";
 
@@ -31,46 +29,10 @@ export default async function InventoryPage() {
             </p>
           </div>
         ) : (
-          <div className="mt-4 grid grid-cols-1 gap-3">
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border bg-muted">
-                    {item.image_url ? (
-                      <Image
-                        src={item.image_url}
-                        alt={item.name}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {item.name}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="truncate">{item.category}</span>
-                      <span>•</span>
-                      <span>Qty {item.quantity}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <form action={deletePantryItemAction}>
-                  <input type="hidden" name="id" value={item.id} />
-                  <Button type="submit" variant="secondary">
-                    Remove
-                  </Button>
-                </form>
-              </div>
-            ))}
-          </div>
+          <InventoryClient
+            items={items}
+            deleteAction={deletePantryItemAction}
+          />
         )}
       </div>
       <AddItemBottomBar active="home" />

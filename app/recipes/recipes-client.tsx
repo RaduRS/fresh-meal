@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import Image from "next/image";
 
 type MealType = "breakfast" | "lunch" | "dinner";
 type Who = "adults" | "kids";
@@ -19,14 +20,16 @@ type Diet =
   | "low-carb";
 
 type Recipe = {
-  id: number;
+  id: string;
   title: string;
-  image: string | null;
-  sourceUrl: string | null;
-  readyInMinutes: number | null;
-  servings: number | null;
-  missedCount: number;
-  missedIngredients: string[];
+  description: string;
+  servings: number;
+  timeMinutes: number;
+  pantryCoverage: number;
+  missingIngredients: string[];
+  ingredientsUsed: string[];
+  steps: string[];
+  imageUrl: string | null;
 };
 
 function defaultMealType(now: Date): MealType {
@@ -64,16 +67,75 @@ function setStoredDiet(value: Diet) {
   } catch {}
 }
 
+function readJsonFromStorage(key: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredFilters() {
+  const data = readJsonFromStorage("recipes:lastFilters");
+  if (!data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+
+  const mealType =
+    obj.mealType === "breakfast" ||
+    obj.mealType === "lunch" ||
+    obj.mealType === "dinner"
+      ? (obj.mealType as MealType)
+      : null;
+  const who =
+    obj.who === "adults" || obj.who === "kids" ? (obj.who as Who) : null;
+  const servingsRaw = Number(obj.servings);
+  const servings =
+    Number.isFinite(servingsRaw) && [1, 2, 3, 4].includes(servingsRaw)
+      ? (servingsRaw as Servings)
+      : null;
+  const diet =
+    obj.diet === "none" ||
+    obj.diet === "vegetarian" ||
+    obj.diet === "vegan" ||
+    obj.diet === "gluten-free" ||
+    obj.diet === "dairy-free" ||
+    obj.diet === "low-carb"
+      ? (obj.diet as Diet)
+      : null;
+
+  return { mealType, who, servings, diet };
+}
+
+function getStoredRecipes(): Recipe[] {
+  const data = readJsonFromStorage("recipes:lastResults");
+  if (!Array.isArray(data)) return [];
+  return data as Recipe[];
+}
+
 export function RecipesClient() {
-  const [mealType, setMealType] = useState<MealType>(() =>
-    defaultMealType(new Date())
-  );
-  const [who, setWho] = useState<Who>("adults");
-  const [servings, setServings] = useState<Servings>(2);
-  const [diet, setDiet] = useState<Diet>(() => getStoredDiet());
+  const router = useRouter();
+  const [mealType, setMealType] = useState<MealType>(() => {
+    const stored = getStoredFilters();
+    return stored?.mealType ?? defaultMealType(new Date());
+  });
+  const [who, setWho] = useState<Who>(() => {
+    const stored = getStoredFilters();
+    return stored?.who ?? "adults";
+  });
+  const [servings, setServings] = useState<Servings>(() => {
+    const stored = getStoredFilters();
+    return stored?.servings ?? 2;
+  });
+  const [diet, setDiet] = useState<Diet>(() => {
+    const stored = getStoredFilters();
+    return stored?.diet ?? getStoredDiet();
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [recipes, setRecipes] = useState<Recipe[]>(() => getStoredRecipes());
 
   useEffect(() => {
     setStoredDiet(diet);
@@ -165,10 +227,10 @@ export function RecipesClient() {
               setRecipes([]);
               setLoading(true);
               try {
-                const res = await fetch("/api/recipes/search", {
+                const res = await fetch("/api/recipes/ai", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mealType, diet, servings }),
+                  body: JSON.stringify({ mealType, who, diet, servings }),
                 });
                 const data = (await res.json()) as unknown;
                 if (!res.ok) {
@@ -190,7 +252,18 @@ export function RecipesClient() {
                   setError("Recipe search failed.");
                   return;
                 }
-                setRecipes(list as Recipe[]);
+                const next = list as Recipe[];
+                setRecipes(next);
+                try {
+                  window.localStorage.setItem(
+                    "recipes:lastFilters",
+                    JSON.stringify({ mealType, who, diet, servings })
+                  );
+                  window.localStorage.setItem(
+                    "recipes:lastResults",
+                    JSON.stringify(next)
+                  );
+                } catch {}
               } catch {
                 setError("Recipe search failed.");
               } finally {
@@ -214,45 +287,50 @@ export function RecipesClient() {
             >
               <div className="flex min-w-0 items-center gap-3">
                 <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border bg-muted">
-                  {r.image ? (
+                  {r.imageUrl ? (
                     <Image
-                      src={r.image}
+                      src={r.imageUrl}
                       alt={r.title}
                       fill
                       className="object-cover"
                       unoptimized
                     />
-                  ) : null}
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-xs text-muted-foreground">
+                      {r.timeMinutes}m
+                    </div>
+                  )}
                 </div>
 
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{r.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                    {typeof r.readyInMinutes === "number" ? (
-                      <span>{r.readyInMinutes} min</span>
-                    ) : null}
-                    {typeof r.servings === "number" ? <span>•</span> : null}
-                    {typeof r.servings === "number" ? (
-                      <span>Serves {r.servings}</span>
-                    ) : null}
                     <span>•</span>
-                    <span>
-                      Missing {r.missedCount}
-                      {r.missedIngredients.length
-                        ? `: ${r.missedIngredients.join(", ")}`
-                        : ""}
-                    </span>
+                    <span>Serves {r.servings}</span>
+                    <span>•</span>
+                    <span>{r.description}</span>
+                    <span>•</span>
+                    <span>{r.pantryCoverage}% pantry</span>
+                    {r.missingIngredients.length ? (
+                      <>
+                        <span>•</span>
+                        <span>Missing: {r.missingIngredients.join(", ")}</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
-              {r.sourceUrl ? (
-                <Button asChild variant="secondary" className="shrink-0">
-                  <a href={r.sourceUrl} target="_blank" rel="noreferrer">
-                    View
-                  </a>
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                className="shrink-0"
+                onClick={() => {
+                  router.push(`/recipes/${encodeURIComponent(r.id)}`);
+                }}
+              >
+                View
+              </Button>
             </div>
           ))}
         </div>
