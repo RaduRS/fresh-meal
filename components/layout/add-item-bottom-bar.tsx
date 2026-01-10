@@ -10,7 +10,7 @@ export function AddItemBottomBar(props: {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/90 backdrop-blur">
-      <div className="mx-auto w-full max-w-xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
+      <div className="mx-auto w-full max-w-xl px-4 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-2">
         <div className="grid grid-cols-5 gap-2">
           <Button
             asChild
@@ -18,7 +18,7 @@ export function AddItemBottomBar(props: {
             className="h-auto flex-col gap-1 py-2"
           >
             <Link href="/inventory">
-              <Home className="size-5" />
+              <Home className="size-6" />
               <span className="text-[11px] leading-none">Home</span>
             </Link>
           </Button>
@@ -29,7 +29,7 @@ export function AddItemBottomBar(props: {
             className="h-auto flex-col gap-1 py-2"
           >
             <Link href="/add-item/manual">
-              <PencilLine className="size-5" />
+              <PencilLine className="size-6" />
               <span className="text-[11px] leading-none">Manual</span>
             </Link>
           </Button>
@@ -40,7 +40,7 @@ export function AddItemBottomBar(props: {
             className="h-auto flex-col gap-1 py-2"
           >
             <Link href="/add-item/barcode">
-              <Barcode className="size-5" />
+              <Barcode className="size-6" />
               <span className="text-[11px] leading-none">Barcode</span>
             </Link>
           </Button>
@@ -51,7 +51,7 @@ export function AddItemBottomBar(props: {
             className="h-auto flex-col gap-1 py-2"
           >
             <Link href="/add-item/photo">
-              <Camera className="size-5" />
+              <Camera className="size-6" />
               <span className="text-[11px] leading-none">Photo</span>
             </Link>
           </Button>
@@ -62,7 +62,7 @@ export function AddItemBottomBar(props: {
             className="h-auto flex-col gap-1 py-2"
           >
             <Link href="/recipes">
-              <Soup className="size-5" />
+              <Soup className="size-6" />
               <span className="text-[11px] leading-none">Recipes</span>
             </Link>
           </Button>

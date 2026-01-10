@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { deletePantryItemAction } from "./actions";
 import { listPantryItems } from "@/lib/pantry";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
@@ -11,7 +13,21 @@ export default async function InventoryPage() {
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-32 pt-6">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Inventory</h1>
+        <div className="flex items-center gap-3">
+          <div className="relative h-8 w-8 overflow-hidden rounded-lg">
+            <Image
+              src="/fresh-meal-logo.png"
+              alt="FreshMeal"
+              fill
+              className="object-cover"
+              priority
+            />
+          </div>
+          <h1 className="text-2xl tracking-tight">
+            <span className="font-extrabold text-[#1D7451]">Fresh</span>
+            <span className="font-extrabold text-amber-600">Meal</span>
+          </h1>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           Add what you have. Find recipes later.
         </p>

@@ -272,8 +272,8 @@ export function InventoryClient(props: {
                   }}
                   onPointerCancel={() => setDrag(null)}
                 >
-                  <div className="grid w-full min-w-0 grid-cols-[4rem_minmax(0,1fr)] grid-rows-[auto_auto] gap-x-4 gap-y-2">
-                    <div className="relative row-span-2 h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                  <div className="grid w-full min-w-0 grid-cols-[5rem_minmax(0,1fr)] grid-rows-[auto_auto] gap-x-4 gap-y-2 sm:grid-cols-[4rem_minmax(0,1fr)]">
+                    <div className="relative row-span-2 h-20 w-20 shrink-0 overflow-hidden rounded-lg border bg-muted sm:h-16 sm:w-16">
                       {item.image_url ? (
                         <Image
                           src={item.image_url}
@@ -290,15 +290,15 @@ export function InventoryClient(props: {
                     </div>
 
                     <div className="col-start-2 row-start-1 min-w-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 truncate text-sm font-medium leading-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1 truncate text-sm font-medium leading-6">
                           {item.name}
                         </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
                           <span className="max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
                             {item.category}
                           </span>
-                          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                          <span className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
                             {item.quantity_unit === "count"
                               ? `Qty: ${formatQuantity(item)}`
                               : formatQuantity(item)}
@@ -309,14 +309,16 @@ export function InventoryClient(props: {
 
                     {macroValues ? (
                       <div className="col-start-2 row-start-2 w-full">
-                        <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-5">
+                        <div className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-5">
                           {macroValues.map(
                             ({ key, Icon, text, iconClassName }) => (
                               <div
                                 key={key}
-                                className="flex w-full items-center justify-center gap-1 rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground"
+                                className="flex w-full items-center justify-center gap-0.5 whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground sm:gap-1 sm:px-2 sm:py-1 sm:text-[11px]"
                               >
-                                <Icon className={`size-4 ${iconClassName}`} />
+                                <Icon
+                                  className={`size-3 sm:size-4 ${iconClassName}`}
+                                />
                                 <span className="tabular-nums">{text}</span>
                               </div>
                             )
@@ -369,6 +371,14 @@ export function InventoryClient(props: {
                   className="w-full"
                   onClick={() => setAddOpen(false)}
                 >
+                  <Link href="/add-item/manual">Manual entry</Link>
+                </Button>
+                <Button
+                  asChild
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => setAddOpen(false)}
+                >
                   <Link href="/add-item/barcode">Scan barcode</Link>
                 </Button>
                 <Button
@@ -378,14 +388,6 @@ export function InventoryClient(props: {
                   onClick={() => setAddOpen(false)}
                 >
                   <Link href="/add-item/photo">Take photo</Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => setAddOpen(false)}
-                >
-                  <Link href="/add-item/manual">Manual entry</Link>
                 </Button>
               </div>
             </div>

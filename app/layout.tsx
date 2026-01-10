@@ -16,6 +16,16 @@ export const metadata: Metadata = {
   title: "FreshMeal",
   description: "Smart pantry and recipe suggestions",
   applicationName: "FreshMeal",
+  icons: {
+    icon: [
+      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" },
+    ],
+    shortcut: ["/favicon-32.png"],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
