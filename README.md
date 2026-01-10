@@ -35,21 +35,18 @@ Single user (personal use), health-conscious, wants practical tools that fit nat
 ### APIs
 1. **Gemini 2.5 Flash** (Google AI Studio API)
    - Image recognition for food items (fruits, vegetables, packaged goods)
-   - Recipe review and refinement
-   - Missing ingredient suggestions
+   - Recipe generation (AI-only recipe discovery)
+   - Missing ingredient suggestions (0 preferred, up to 2 if needed)
    - Free tier: unlimited requests for personal use
 
-2. **Spoonacular API**
-   - Recipe search by ingredients
-   - Nutrition data
-   - Recipe filtering (meal type, servings, dietary restrictions)
-   - Free tier: 50 points/day
-
-3. **Open Food Facts API**
+2. **Open Food Facts API**
    - Barcode scanning for packaged products
    - Product information (name, ingredients, nutrition)
    - Completely free, no API key required
    - Endpoint: `https://world.openfoodfacts.org/api/v0/product/[barcode].json`
+
+3. **Nebius Image Generation**
+   - Recipe image generation (stored in Supabase Storage)
 
 ### Camera Access
 - HTML5 `getUserMedia()` API for real-time camera
@@ -219,53 +216,23 @@ Three consecutive dropdowns on recipe discovery screen:
 4. **Backend Process:**
 a. Fetch all items from Supabase `pantry_items` where `deleted_at IS NULL`
 b. Build comma-separated ingredient list
-c. Call Spoonacular API:
-    - Endpoint: `GET /recipes/findByIngredients`
-    - Parameters:
-        - `ingredients`: comma-separated list from pantry
-        - `number`: 10 (fetch top 10 recipes)
-        - `ranking`: 2 (maximize used ingredients)
-        - `ignorePantry`: false
-d. For each recipe, fetch detailed info:
-    - Endpoint: `GET /recipes/{id}/information`
-    - Get full instructions, nutrition, cooking time
-e. Send all recipes to Gemini 2.5 Flash for ranking:
-
-```
-Given these recipes and the user's goal of healthy eating, rank them from best to worst.
-Consider:
-- Nutritional balance (protein, veggies, whole grains)
-- Cooking complexity
-- Number of missing ingredients
-
-User's dietary preference: {preference}
-User has these ingredients: {ingredient_list}
-
-Recipes:
-{recipes_json}
-
-Return ranked recipes as JSON with added fields:
-- health_score: 0-100
-- why_healthy: brief explanation
-- missing_ingredients: array of ingredients user needs to buy
-- estimated_cost: low/medium/high for missing ingredients
-```
-
-f. Display ranked recipes
+c. Call Gemini 2.5 Flash to generate recipe ideas:
+    - Generate 3 recipes
+    - Prefer 0 missing ingredients
+    - Allow up to 2 missing items only if pantry coverage is high
+d. Generate a recipe image (Nebius) and store in Supabase Storage
+e. Display recipes
 5. Show results in scrollable list
 
 #### Recipe Card Design
 
 Each recipe card shows:
 
-- Recipe image (from Spoonacular)
+- Recipe image (generated)
 - Recipe title
-- **Health Score badge** (e.g., "85/100 Healthy")
-- **Why Healthy** (1 sentence from Gemini)
 - Cooking time
 - Servings
 - **Missing Ingredients chip** (e.g., "Need 2 items: olive oil, garlic")
-- **Estimated Cost** (Low/Medium/High)
 - "View Recipe" button
 
 **On Click:**
@@ -309,9 +276,9 @@ Each recipe card shows:
 
 #### Service Worker
 
-- Use `next-pwa` package for easy setup
+- Uses `next-pwa` for service worker generation and caching
 - Cache static assets (CSS, JS, fonts)
-- Cache API responses for offline viewing (Spoonacular recipes, Supabase data)
+- Cache API responses for offline viewing (Supabase data, app API routes)
 - Background sync for adding items when offline (optional for MVP)
 
 
@@ -853,4 +820,3 @@ FreshMeal is designed to be:
 - **Mobile-first**: Optimized for one-handed use while cooking
 
 The app should feel like a helpful cooking assistant, not a data entry chore.
-
