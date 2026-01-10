@@ -203,10 +203,15 @@ function readItems(data: unknown): AnalyzeItem[] | null {
 
 async function compressPhoto(file: File) {
   try {
-    const maxDim = 1600;
-    const maxBytes = 1_500_000;
+    const maxBytes = 1_200_000;
     const bitmap = await createImageBitmap(file);
     const largestDim = Math.max(bitmap.width, bitmap.height);
+    const maxDim =
+      file.size > 4_000_000 || largestDim > 2800
+        ? 1280
+        : file.size > 2_000_000 || largestDim > 2200
+        ? 1440
+        : 1600;
     const shouldCompress = file.size > maxBytes || largestDim > maxDim;
     if (!shouldCompress) return file;
 
@@ -222,9 +227,15 @@ async function compressPhoto(file: File) {
     if (!ctx) return file;
     ctx.drawImage(bitmap, 0, 0, width, height);
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/jpeg", 0.9);
-    });
+    const qualities = [0.9, 0.85, 0.8, 0.75];
+    let blob: Blob | null = null;
+    for (const q of qualities) {
+      blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, "image/jpeg", q);
+      });
+      if (!blob) break;
+      if (blob.size <= maxBytes) break;
+    }
 
     if (!blob) return file;
     if (blob.size >= file.size) return file;
