@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import Image from "next/image";
 
 type MealType = "breakfast" | "lunch" | "dinner";
 type Who = "adults" | "kids";
@@ -16,6 +17,17 @@ type Diet =
   | "gluten-free"
   | "dairy-free"
   | "low-carb";
+
+type Recipe = {
+  id: number;
+  title: string;
+  image: string | null;
+  sourceUrl: string | null;
+  readyInMinutes: number | null;
+  servings: number | null;
+  missedCount: number;
+  missedIngredients: string[];
+};
 
 function defaultMealType(now: Date): MealType {
   const h = now.getHours();
@@ -60,6 +72,8 @@ export function RecipesClient() {
   const [servings, setServings] = useState<Servings>(2);
   const [diet, setDiet] = useState<Diet>(() => getStoredDiet());
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
 
   useEffect(() => {
     setStoredDiet(diet);
@@ -147,9 +161,41 @@ export function RecipesClient() {
             className="w-full"
             disabled={loading}
             onClick={async () => {
+              setError(null);
+              setRecipes([]);
               setLoading(true);
-              await new Promise((r) => setTimeout(r, 250));
-              setLoading(false);
+              try {
+                const res = await fetch("/api/recipes/search", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ mealType, diet, servings }),
+                });
+                const data = (await res.json()) as unknown;
+                if (!res.ok) {
+                  const msg =
+                    data && typeof data === "object" && "error" in data
+                      ? String(
+                          (data as { error?: unknown }).error ??
+                            "Recipe search failed."
+                        )
+                      : "Recipe search failed.";
+                  setError(msg);
+                  return;
+                }
+                const list =
+                  data && typeof data === "object" && "recipes" in data
+                    ? (data as { recipes?: unknown }).recipes
+                    : null;
+                if (!Array.isArray(list)) {
+                  setError("Recipe search failed.");
+                  return;
+                }
+                setRecipes(list as Recipe[]);
+              } catch {
+                setError("Recipe search failed.");
+              } finally {
+                setLoading(false);
+              }
             }}
           >
             {loading ? "Finding recipes…" : "Find recipes"}
@@ -157,9 +203,60 @@ export function RecipesClient() {
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
-        Next step: hook this button to Spoonacular + Gemini ranking.
-      </div>
+      {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
+      {recipes.length ? (
+        <div className="grid grid-cols-1 gap-3">
+          {recipes.map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                  {r.image ? (
+                    <Image
+                      src={r.image}
+                      alt={r.title}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  ) : null}
+                </div>
+
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{r.title}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                    {typeof r.readyInMinutes === "number" ? (
+                      <span>{r.readyInMinutes} min</span>
+                    ) : null}
+                    {typeof r.servings === "number" ? <span>•</span> : null}
+                    {typeof r.servings === "number" ? (
+                      <span>Serves {r.servings}</span>
+                    ) : null}
+                    <span>•</span>
+                    <span>
+                      Missing {r.missedCount}
+                      {r.missedIngredients.length
+                        ? `: ${r.missedIngredients.join(", ")}`
+                        : ""}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {r.sourceUrl ? (
+                <Button asChild variant="secondary" className="shrink-0">
+                  <a href={r.sourceUrl} target="_blank" rel="noreferrer">
+                    View
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
