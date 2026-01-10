@@ -1,6 +1,14 @@
 type GeminiDetectedItem = {
   name: string;
   quantity: number;
+  quantityUnit?: "count" | "g" | "ml";
+  nutritionPer100g?: {
+    caloriesKcal?: number | null;
+    proteinG?: number | null;
+    carbsG?: number | null;
+    fatG?: number | null;
+    sugarG?: number | null;
+  };
   confidence: number;
 };
 
@@ -60,13 +68,15 @@ export async function detectPantryItemsFromImage(input: {
   )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const prompt = `Analyze this photo and identify food items visible. Return ONLY valid JSON with this exact shape:
-{"items":[{"name":"Tomatoes","quantity":2,"confidence":0.92}]}
+{"items":[{"name":"Tomatoes","quantity":2,"quantityUnit":"count","nutritionPer100g":{"caloriesKcal":18,"proteinG":0.9,"carbsG":3.9,"fatG":0.2,"sugarG":2.6},"confidence":0.92}]}
 
 Rules:
 - items: include only food items you are confident about
 - name: for packaged items, return the product name as a single item (include brand if visible). Do not split one package into multiple ingredients
 - name: for fresh items, use the most specific common UK name visible (e.g., "Cherry Tomatoes" not just "Tomatoes"), properly capitalized. If unsure, use the generic name
-- quantity: integer, use 1 if unclear
+- quantityUnit: one of "count","g","ml". Use "g" or "ml" only if the amount is clearly visible on packaging, otherwise "count"
+- quantity: number, use 1 if unclear. If quantityUnit is "g" or "ml", quantity can be a whole number
+- nutritionPer100g: include ONLY if you are confident (nutrition label is readable or the food is unambiguous). If unsure, set it to null or omit it. Use grams for macros and kcal for calories
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
 - do not include any extra keys or text`;
@@ -112,7 +122,21 @@ Rules:
 
   const deduped = new Map<
     string,
-    { name: string; quantity: number; confidence: number }
+    {
+      name: string;
+      quantity: number;
+      quantityUnit: "count" | "g" | "ml";
+      nutritionPer100g:
+        | {
+            caloriesKcal: number | null;
+            proteinG: number | null;
+            carbsG: number | null;
+            fatG: number | null;
+            sugarG: number | null;
+          }
+        | null;
+      confidence: number;
+    }
   >();
 
   for (const item of items) {
@@ -122,21 +146,50 @@ Rules:
 
     const q = Number(item.quantity);
     const c = Number(item.confidence);
-    const quantity = Number.isFinite(q) ? Math.max(1, Math.floor(q)) : 1;
+    const quantity = Number.isFinite(q) ? Math.max(0, Math.round(q * 100) / 100) : 1;
+    const unit =
+      item.quantityUnit === "g" || item.quantityUnit === "ml" || item.quantityUnit === "count"
+        ? item.quantityUnit
+        : "count";
     const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
+    const nutritionRaw =
+      item.nutritionPer100g && typeof item.nutritionPer100g === "object"
+        ? (item.nutritionPer100g as Record<string, unknown>)
+        : null;
+    const nutritionPer100g = nutritionRaw
+      ? {
+          caloriesKcal: Number.isFinite(Number(nutritionRaw.caloriesKcal))
+            ? Number(nutritionRaw.caloriesKcal)
+            : null,
+          proteinG: Number.isFinite(Number(nutritionRaw.proteinG)) ? Number(nutritionRaw.proteinG) : null,
+          carbsG: Number.isFinite(Number(nutritionRaw.carbsG)) ? Number(nutritionRaw.carbsG) : null,
+          fatG: Number.isFinite(Number(nutritionRaw.fatG)) ? Number(nutritionRaw.fatG) : null,
+          sugarG: Number.isFinite(Number(nutritionRaw.sugarG)) ? Number(nutritionRaw.sugarG) : null,
+        }
+      : null;
 
     const key = canonicalizeName(name);
     if (!key) continue;
 
     const existing = deduped.get(key);
     if (!existing) {
-      deduped.set(key, { name, quantity, confidence });
+      deduped.set(key, { name, quantity, quantityUnit: unit, nutritionPer100g, confidence });
       continue;
     }
+
+    const mergedNutrition =
+      nutritionPer100g &&
+      (!existing.nutritionPer100g ||
+        Object.values(nutritionPer100g).filter((v) => typeof v === "number").length >
+          Object.values(existing.nutritionPer100g).filter((v) => typeof v === "number").length)
+        ? nutritionPer100g
+        : existing.nutritionPer100g;
 
     deduped.set(key, {
       name: existing.name.length >= name.length ? existing.name : name,
       quantity: Math.max(existing.quantity, quantity),
+      quantityUnit: existing.confidence >= confidence ? existing.quantityUnit : unit,
+      nutritionPer100g: mergedNutrition,
       confidence: Math.max(existing.confidence, confidence),
     });
   }

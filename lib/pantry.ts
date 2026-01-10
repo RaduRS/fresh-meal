@@ -36,6 +36,13 @@ export type PantryItem = {
   name: string;
   category: PantryCategory;
   quantity: number;
+  quantity_unit: "count" | "g" | "ml";
+  serving_size: string | null;
+  calories_kcal_100g: number | null;
+  protein_g_100g: number | null;
+  carbs_g_100g: number | null;
+  fat_g_100g: number | null;
+  sugar_g_100g: number | null;
   barcode: string | null;
   image_url: string | null;
   added_date: string;
@@ -49,7 +56,7 @@ export async function listPantryItems() {
   const { data, error } = await supabase
     .from("pantry_items")
     .select(
-      "id,name,category,quantity,barcode,image_url,added_date,deleted_at,created_at,updated_at"
+      "id,name,category,quantity,quantity_unit,serving_size,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
     )
     .is("deleted_at", null)
     .order("added_date", { ascending: false });
@@ -62,6 +69,13 @@ export async function insertPantryItem(input: {
   name: string;
   category: PantryCategory;
   quantity: number;
+  quantityUnit?: PantryItem["quantity_unit"] | null;
+  servingSize?: string | null;
+  caloriesKcal100g?: number | null;
+  proteinG100g?: number | null;
+  carbsG100g?: number | null;
+  fatG100g?: number | null;
+  sugarG100g?: number | null;
   barcode?: string | null;
   imageUrl?: string | null;
 }) {
@@ -72,6 +86,13 @@ export async function insertPantryItem(input: {
       name: input.name,
       category: input.category,
       quantity: input.quantity,
+      quantity_unit: input.quantityUnit ?? "count",
+      serving_size: input.servingSize ?? null,
+      calories_kcal_100g: input.caloriesKcal100g ?? null,
+      protein_g_100g: input.proteinG100g ?? null,
+      carbs_g_100g: input.carbsG100g ?? null,
+      fat_g_100g: input.fatG100g ?? null,
+      sugar_g_100g: input.sugarG100g ?? null,
       barcode: input.barcode ?? null,
       image_url: input.imageUrl ?? null,
     })

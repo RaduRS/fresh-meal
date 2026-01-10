@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,13 @@ type PantryItem = {
   name: string;
   category: string;
   quantity: number;
+  quantity_unit: "count" | "g" | "ml";
+  serving_size: string | null;
+  calories_kcal_100g: number | null;
+  protein_g_100g: number | null;
+  carbs_g_100g: number | null;
+  fat_g_100g: number | null;
+  sugar_g_100g: number | null;
   image_url: string | null;
 };
 
@@ -21,6 +29,104 @@ function initials(name: string) {
   const first = parts[0]?.[0] ?? "";
   const second = parts.length > 1 ? parts[1]?.[0] ?? "" : parts[0]?.[1] ?? "";
   return `${first}${second}`.toUpperCase();
+}
+
+function formatQuantity(item: PantryItem) {
+  const qty = Number.isFinite(item.quantity) ? item.quantity : 0;
+  const unit = item.quantity_unit ?? "count";
+  const rounded = Math.round(qty * 100) / 100;
+  if (unit === "count") return `${rounded}`;
+  return `${rounded}${unit}`;
+}
+
+function parseServingSize(
+  raw: string | null,
+  quantityUnit: PantryItem["quantity_unit"]
+) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  const m = text.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$/);
+  if (!m) return { text, value: null, unit: null };
+
+  const value = Number(m[1]);
+  if (!Number.isFinite(value)) return { text, value: null, unit: null };
+
+  const unitRaw = (m[2] ?? "").trim().toLowerCase();
+  if (!unitRaw) {
+    if (quantityUnit === "g" || quantityUnit === "ml") {
+      return { text: `${value}${quantityUnit}`, value, unit: quantityUnit };
+    }
+    return { text, value, unit: null };
+  }
+
+  if (
+    unitRaw === "g" ||
+    unitRaw === "gram" ||
+    unitRaw === "grams" ||
+    unitRaw === "gr"
+  )
+    return { text: `${value}g`, value, unit: "g" as const };
+  if (unitRaw === "ml")
+    return { text: `${value}ml`, value, unit: "ml" as const };
+  if (
+    unitRaw === "l" ||
+    unitRaw === "lt" ||
+    unitRaw === "liter" ||
+    unitRaw === "litre"
+  ) {
+    const ml = Math.round(value * 1000 * 100) / 100;
+    return { text: `${ml}ml`, value: ml, unit: "ml" as const };
+  }
+
+  return { text, value, unit: null };
+}
+
+function macroChips(item: PantryItem) {
+  const values: {
+    key: string;
+    Icon: ComponentType<{ className?: string }>;
+    text: string;
+    iconClassName: string;
+  }[] = [];
+
+  if (typeof item.calories_kcal_100g === "number")
+    values.push({
+      key: "kcal",
+      Icon: Flame,
+      text: `${Math.round(item.calories_kcal_100g)} kcal`,
+      iconClassName: "text-orange-600",
+    });
+  if (typeof item.protein_g_100g === "number")
+    values.push({
+      key: "protein",
+      Icon: Beef,
+      text: `${Math.round(item.protein_g_100g * 10) / 10}g`,
+      iconClassName: "text-sky-600",
+    });
+  if (typeof item.carbs_g_100g === "number")
+    values.push({
+      key: "carbs",
+      Icon: Wheat,
+      text: `${Math.round(item.carbs_g_100g * 10) / 10}g`,
+      iconClassName: "text-amber-600",
+    });
+  if (typeof item.fat_g_100g === "number")
+    values.push({
+      key: "fat",
+      Icon: Droplet,
+      text: `${Math.round(item.fat_g_100g * 10) / 10}g`,
+      iconClassName: "text-yellow-600",
+    });
+  if (typeof item.sugar_g_100g === "number")
+    values.push({
+      key: "sugar",
+      Icon: Candy,
+      text: `${Math.round(item.sugar_g_100g * 10) / 10}g`,
+      iconClassName: "text-pink-600",
+    });
+
+  return values.length ? values : null;
 }
 
 export function InventoryClient(props: {
@@ -129,86 +235,146 @@ export function InventoryClient(props: {
         </div>
       ) : (
         <div className="mt-4 grid grid-cols-1 gap-3">
-          {filtered.map((item) => (
-            <div
-              key={item.id}
-              className="relative overflow-hidden rounded-xl bg-red-600"
-            >
-              <button
-                type="button"
-                className="absolute inset-0 z-0 flex w-full items-center justify-end px-5 text-sm font-medium text-white"
-                onClick={() => scheduleDelete(item)}
-              >
-                Remove
-              </button>
+          {filtered.map((item) => {
+            const macroValues = macroChips(item);
+            const serving = parseServingSize(
+              item.serving_size,
+              item.quantity_unit
+            );
+            const qtyRounded = Number.isFinite(item.quantity)
+              ? Math.round(item.quantity * 100) / 100
+              : 0;
+            const showAmountChip =
+              item.quantity_unit === "count" ||
+              !(
+                qtyRounded === 1 &&
+                serving?.unit === item.quantity_unit &&
+                typeof serving.value === "number"
+              );
+            const totalAmount =
+              item.quantity_unit === "count" &&
+              serving?.unit &&
+              typeof serving.value === "number"
+                ? Math.round(qtyRounded * serving.value * 100) / 100
+                : null;
 
+            return (
               <div
-                className="relative z-10 flex touch-pan-y items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm"
-                style={{
-                  transform:
-                    drag?.id === item.id
-                      ? `translateX(${Math.max(-96, Math.min(0, drag.dx))}px)`
-                      : undefined,
-                  transition:
-                    drag?.id === item.id ? undefined : "transform 120ms ease",
-                }}
-                onPointerDown={(e) => {
-                  setDrag({ id: item.id, startX: e.clientX, dx: 0 });
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  setDrag((prev) => {
-                    if (!prev || prev.id !== item.id) return prev;
-                    return { ...prev, dx: e.clientX - prev.startX };
-                  });
-                }}
-                onPointerUp={() => {
-                  setDrag((prev) => {
-                    if (!prev || prev.id !== item.id) return prev;
-                    if (prev.dx < -80) scheduleDelete(item);
-                    return null;
-                  });
-                }}
-                onPointerCancel={() => setDrag(null)}
+                key={item.id}
+                className="relative overflow-hidden rounded-xl bg-red-600"
               >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border bg-muted">
-                    {item.image_url ? (
-                      <Image
-                        src={item.image_url}
-                        alt={item.name}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-muted to-secondary text-xs font-semibold text-muted-foreground">
-                        {initials(item.name)}
-                      </div>
-                    )}
-                  </div>
+                <button
+                  type="button"
+                  className="absolute inset-0 z-0 flex w-full items-center justify-end px-5 text-sm font-medium text-white"
+                  onClick={() => scheduleDelete(item)}
+                >
+                  Remove
+                </button>
 
-                  <div className="min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">
+                <div
+                  className="relative z-10 flex touch-pan-y items-start justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm"
+                  style={{
+                    transform:
+                      drag?.id === item.id
+                        ? `translateX(${Math.max(-96, Math.min(0, drag.dx))}px)`
+                        : undefined,
+                    transition:
+                      drag?.id === item.id ? undefined : "transform 120ms ease",
+                  }}
+                  onPointerDown={(e) => {
+                    setDrag({ id: item.id, startX: e.clientX, dx: 0 });
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    setDrag((prev) => {
+                      if (!prev || prev.id !== item.id) return prev;
+                      return { ...prev, dx: e.clientX - prev.startX };
+                    });
+                  }}
+                  onPointerUp={() => {
+                    setDrag((prev) => {
+                      if (!prev || prev.id !== item.id) return prev;
+                      if (prev.dx < -80) scheduleDelete(item);
+                      return null;
+                    });
+                  }}
+                  onPointerCancel={() => setDrag(null)}
+                >
+                  <div className="grid w-full min-w-0 grid-cols-[4rem_minmax(0,1fr)] grid-rows-[auto_auto] gap-x-4 gap-y-2">
+                    <div className="relative row-span-2 h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                      {item.image_url ? (
+                        <Image
+                          src={item.image_url}
+                          alt={item.name}
+                          fill
+                          className="object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center bg-gradient-to-br from-muted to-secondary text-xs font-semibold text-muted-foreground">
+                          {initials(item.name)}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="col-start-2 row-start-1 min-w-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 truncate text-sm font-medium leading-6">
                           {item.name}
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <span className="max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
                             {item.category}
                           </span>
-                          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                            Qty {item.quantity}
-                          </span>
+                          {showAmountChip ? (
+                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {item.quantity_unit === "count"
+                                ? `Qty: ${formatQuantity(item)}`
+                                : formatQuantity(item)}
+                            </span>
+                          ) : null}
+                          {serving ? (
+                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {item.quantity_unit === "count"
+                                ? `× ${serving.text}`
+                                : serving.text}
+                            </span>
+                          ) : null}
+                          {typeof totalAmount === "number" &&
+                          Number.isFinite(totalAmount) &&
+                          totalAmount > 0 &&
+                          serving?.unit ? (
+                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                              Total: {totalAmount}
+                              {serving.unit}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </div>
+
+                    {macroValues ? (
+                      <div className="col-start-2 row-start-2 w-full">
+                        <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-5">
+                          {macroValues.map(
+                            ({ key, Icon, text, iconClassName }) => (
+                              <div
+                                key={key}
+                                className="flex w-full items-center justify-center gap-1 rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground"
+                              >
+                                <Icon className={`size-4 ${iconClassName}`} />
+                                <span className="tabular-nums">{text}</span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

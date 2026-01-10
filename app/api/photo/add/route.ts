@@ -6,7 +6,18 @@ import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
 import { ensurePantryItemImage } from "@/lib/pantry-images";
 
-type AddItemInput = { name: string; quantity: number };
+type AddItemInput = {
+  name: string;
+  quantity: number;
+  quantityUnit: "count" | "g" | "ml";
+  nutritionPer100g: {
+    caloriesKcal: number | null;
+    proteinG: number | null;
+    carbsG: number | null;
+    fatG: number | null;
+    sugarG: number | null;
+  } | null;
+};
 
 function readItems(data: unknown): AddItemInput[] | null {
   if (!data || typeof data !== "object") return null;
@@ -21,10 +32,42 @@ function readItems(data: unknown): AddItemInput[] | null {
     const name = typeof obj.name === "string" ? obj.name.trim() : "";
     const quantityRaw = Number(obj.quantity);
     const quantity = Number.isFinite(quantityRaw)
-      ? Math.max(1, Math.floor(quantityRaw))
+      ? Math.max(0, Math.round(quantityRaw * 100) / 100)
       : 1;
+    const unitRaw =
+      typeof obj.quantityUnit === "string" ? obj.quantityUnit.trim() : "";
+    const quantityUnit =
+      unitRaw === "g" || unitRaw === "ml" || unitRaw === "count"
+        ? unitRaw
+        : "count";
+    const nutritionRaw =
+      obj.nutritionPer100g && typeof obj.nutritionPer100g === "object"
+        ? (obj.nutritionPer100g as Record<string, unknown>)
+        : null;
+    const nutritionPer100g = nutritionRaw
+      ? {
+          caloriesKcal:
+            typeof nutritionRaw.caloriesKcal === "number"
+              ? nutritionRaw.caloriesKcal
+              : null,
+          proteinG:
+            typeof nutritionRaw.proteinG === "number"
+              ? nutritionRaw.proteinG
+              : null,
+          carbsG:
+            typeof nutritionRaw.carbsG === "number"
+              ? nutritionRaw.carbsG
+              : null,
+          fatG:
+            typeof nutritionRaw.fatG === "number" ? nutritionRaw.fatG : null,
+          sugarG:
+            typeof nutritionRaw.sugarG === "number"
+              ? nutritionRaw.sugarG
+              : null,
+        }
+      : null;
     if (!name) continue;
-    items.push({ name, quantity });
+    items.push({ name, quantity, quantityUnit, nutritionPer100g });
   }
 
   return items.slice(0, 50);
@@ -47,6 +90,12 @@ export async function POST(req: Request) {
         name,
         category,
         quantity: item.quantity,
+        quantityUnit: item.quantityUnit,
+        caloriesKcal100g: item.nutritionPer100g?.caloriesKcal ?? null,
+        proteinG100g: item.nutritionPer100g?.proteinG ?? null,
+        carbsG100g: item.nutritionPer100g?.carbsG ?? null,
+        fatG100g: item.nutritionPer100g?.fatG ?? null,
+        sugarG100g: item.nutritionPer100g?.sugarG ?? null,
       });
       if (id) {
         await ensurePantryItemImage({ id }).catch(() => null);

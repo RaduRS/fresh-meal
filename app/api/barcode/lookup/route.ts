@@ -9,6 +9,8 @@ type OFFProductResponse = {
     image_front_url?: string;
     quantity?: string;
     brands?: string;
+    serving_size?: string;
+    nutriments?: Record<string, unknown>;
   };
 };
 
@@ -22,6 +24,11 @@ function pickName(p: OFFProductResponse["product"]) {
 
 function pickImage(p: OFFProductResponse["product"]) {
   return p?.image_front_url?.trim() || p?.image_url?.trim() || null;
+}
+
+function readNumber(v: unknown) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function GET(req: Request) {
@@ -70,9 +77,16 @@ export async function GET(req: Request) {
       name,
       imageUrl: pickImage(data.product),
       brand: data.product.brands ?? null,
+      servingSize: data.product.serving_size?.trim() || null,
+      nutritionPer100g: {
+        caloriesKcal: readNumber(data.product.nutriments?.["energy-kcal_100g"]),
+        proteinG: readNumber(data.product.nutriments?.["proteins_100g"]),
+        carbsG: readNumber(data.product.nutriments?.["carbohydrates_100g"]),
+        fatG: readNumber(data.product.nutriments?.["fat_100g"]),
+        sugarG: readNumber(data.product.nutriments?.["sugars_100g"]),
+      },
     });
   } catch {
     return NextResponse.json({ error: "Barcode lookup failed." }, { status: 500 });
   }
 }
-
