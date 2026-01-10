@@ -16,6 +16,13 @@ type PantryItem = {
   image_url: string | null;
 };
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/g).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const second = parts.length > 1 ? parts[1]?.[0] ?? "" : parts[0]?.[1] ?? "";
+  return `${first}${second}`.toUpperCase();
+}
+
 export function InventoryClient(props: {
   items: PantryItem[];
   deleteAction: (formData: FormData) => Promise<void>;
@@ -136,7 +143,7 @@ export function InventoryClient(props: {
               </button>
 
               <div
-                className="relative z-10 flex touch-pan-y items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
+                className="relative z-10 flex touch-pan-y items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm"
                 style={{
                   transform:
                     drag?.id === item.id
@@ -165,7 +172,7 @@ export function InventoryClient(props: {
                 onPointerCancel={() => setDrag(null)}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg border bg-muted">
+                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border bg-muted">
                     {item.image_url ? (
                       <Image
                         src={item.image_url}
@@ -174,17 +181,28 @@ export function InventoryClient(props: {
                         className="object-cover"
                         unoptimized
                       />
-                    ) : null}
+                    ) : (
+                      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-muted to-secondary text-xs font-semibold text-muted-foreground">
+                        {initials(item.name)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {item.name}
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="truncate">{item.category}</span>
-                      <span>•</span>
-                      <span>Qty {item.quantity}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">
+                          {item.name}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <span className="max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
+                            {item.category}
+                          </span>
+                          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                            Qty {item.quantity}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
