@@ -1,8 +1,5 @@
-import Link from "next/link";
-
 import { PhotoAddClient } from "./photo-add-client";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
-import { Button } from "@/components/ui/button";
 
 export default function PhotoAddPage() {
   return (
@@ -16,14 +13,7 @@ export default function PhotoAddPage() {
 
       <PhotoAddClient />
 
-      <div className="mt-4">
-        <Button asChild variant="ghost" className="w-full">
-          <Link href="/inventory">Back to inventory</Link>
-        </Button>
-      </div>
-
       <AddItemBottomBar active="photo" />
     </div>
   );
 }
-

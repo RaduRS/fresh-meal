@@ -9,6 +9,16 @@ function makePrompt(name: string, category: string) {
   return `Studio product photo of ${base}. Category: ${cat}. Centered, clean neutral background, realistic, soft lighting, high detail, no packaging text visible.`;
 }
 
+function getBucketName() {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_IMAGES_BUCKET?.trim() || "pantry-images"
+  );
+}
+
+function getObjectPath(id: string) {
+  return `pantry/${id}.png`;
+}
+
 export async function ensurePantryItemImage(input: { id: string }) {
   const supabase = createSupabaseAdminClient();
 
@@ -30,8 +40,8 @@ export async function ensurePantryItemImage(input: { id: string }) {
 
   if (!png) return null;
 
-  const bucket = process.env.NEXT_PUBLIC_SUPABASE_IMAGES_BUCKET?.trim() || "pantry-images";
-  const objectPath = `pantry/${item.id}.png`;
+  const bucket = getBucketName();
+  const objectPath = getObjectPath(String(item.id));
 
   const upload = await supabase.storage.from(bucket).upload(objectPath, png, {
     contentType: "image/png",
@@ -40,7 +50,8 @@ export async function ensurePantryItemImage(input: { id: string }) {
 
   if (upload.error) throw upload.error;
 
-  const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath).data.publicUrl;
+  const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath)
+    .data.publicUrl;
   if (!publicUrl) return null;
 
   const { error: updateError } = await supabase
@@ -53,3 +64,10 @@ export async function ensurePantryItemImage(input: { id: string }) {
   return publicUrl;
 }
 
+export async function deletePantryItemImage(input: { id: string }) {
+  const supabase = createSupabaseAdminClient();
+  const bucket = getBucketName();
+  const objectPath = getObjectPath(input.id);
+  const { error } = await supabase.storage.from(bucket).remove([objectPath]);
+  if (error) throw error;
+}

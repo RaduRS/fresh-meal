@@ -1,8 +1,5 @@
-import Link from "next/link";
-
 import { BarcodeAddClient } from "./barcode-add-client";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
-import { Button } from "@/components/ui/button";
 
 export default function BarcodeAddPage() {
   return (
@@ -16,14 +13,7 @@ export default function BarcodeAddPage() {
 
       <BarcodeAddClient />
 
-      <div className="mt-4">
-        <Button asChild variant="ghost" className="w-full">
-          <Link href="/inventory">Back to inventory</Link>
-        </Button>
-      </div>
-
       <AddItemBottomBar active="barcode" />
     </div>
   );
 }
-

@@ -1,9 +1,6 @@
-import Link from "next/link";
-
 import { addPantryItemAction } from "@/app/inventory/actions";
 import { ManualAddSubmitButton } from "@/app/add-item/manual/submit-button";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -46,10 +43,6 @@ export default function ManualAddItemPage() {
           </div>
 
           <ManualAddSubmitButton />
-
-          <Button asChild variant="ghost" className="w-full">
-            <Link href="/inventory">Back to inventory</Link>
-          </Button>
         </div>
       </form>
       <AddItemBottomBar active="manual" />

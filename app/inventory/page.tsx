@@ -73,7 +73,7 @@ export default async function InventoryPage() {
           </div>
         )}
       </div>
-      <AddItemBottomBar />
+      <AddItemBottomBar active="home" />
     </div>
   );
 }

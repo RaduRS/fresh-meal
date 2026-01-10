@@ -6,7 +6,10 @@ import { redirect } from "next/navigation";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { insertPantryItem, softDeletePantryItem } from "@/lib/pantry";
-import { ensurePantryItemImage } from "@/lib/pantry-images";
+import {
+  deletePantryItemImage,
+  ensurePantryItemImage,
+} from "@/lib/pantry-images";
 
 function parseQuantity(value: string): number {
   const n = Number(value);
@@ -38,5 +41,6 @@ export async function deletePantryItemAction(formData: FormData) {
   if (!id) return;
 
   await softDeletePantryItem(id);
+  await deletePantryItemImage({ id }).catch(() => null);
   revalidatePath("/inventory");
 }
