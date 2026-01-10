@@ -53,6 +53,18 @@ function canonicalizeName(name: string) {
     .trim();
 }
 
+function roundCaloriesKcal(value: number | null) {
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.round(value));
+}
+
+function roundMacroG(value: number | null) {
+  if (typeof value !== "number") return null;
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
 export async function estimateNutritionPer100gFromText(input: {
   name: string;
   brand?: string | null;
@@ -262,21 +274,31 @@ Rules:
         : null;
     const nutritionPer100g = nutritionRaw
       ? {
-          caloriesKcal: Number.isFinite(Number(nutritionRaw.caloriesKcal))
-            ? Number(nutritionRaw.caloriesKcal)
-            : null,
-          proteinG: Number.isFinite(Number(nutritionRaw.proteinG))
-            ? Number(nutritionRaw.proteinG)
-            : null,
-          carbsG: Number.isFinite(Number(nutritionRaw.carbsG))
-            ? Number(nutritionRaw.carbsG)
-            : null,
-          fatG: Number.isFinite(Number(nutritionRaw.fatG))
-            ? Number(nutritionRaw.fatG)
-            : null,
-          sugarG: Number.isFinite(Number(nutritionRaw.sugarG))
-            ? Number(nutritionRaw.sugarG)
-            : null,
+          caloriesKcal: roundCaloriesKcal(
+            Number.isFinite(Number(nutritionRaw.caloriesKcal))
+              ? Number(nutritionRaw.caloriesKcal)
+              : null
+          ),
+          proteinG: roundMacroG(
+            Number.isFinite(Number(nutritionRaw.proteinG))
+              ? Number(nutritionRaw.proteinG)
+              : null
+          ),
+          carbsG: roundMacroG(
+            Number.isFinite(Number(nutritionRaw.carbsG))
+              ? Number(nutritionRaw.carbsG)
+              : null
+          ),
+          fatG: roundMacroG(
+            Number.isFinite(Number(nutritionRaw.fatG))
+              ? Number(nutritionRaw.fatG)
+              : null
+          ),
+          sugarG: roundMacroG(
+            Number.isFinite(Number(nutritionRaw.sugarG))
+              ? Number(nutritionRaw.sugarG)
+              : null
+          ),
         }
       : null;
 

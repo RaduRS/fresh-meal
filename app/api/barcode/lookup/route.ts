@@ -29,6 +29,14 @@ function readNumber(v: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function roundCaloriesKcal(value: number) {
+  return Math.max(0, Math.round(value));
+}
+
+function roundMacroG(value: number) {
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const barcode = (url.searchParams.get("barcode") ?? "").trim();
@@ -92,6 +100,13 @@ export async function GET(req: Request) {
         })
       : null;
 
+    const caloriesKcal =
+      offNutrition.caloriesKcal ?? aiNutrition?.caloriesKcal ?? null;
+    const proteinG = offNutrition.proteinG ?? aiNutrition?.proteinG ?? null;
+    const carbsG = offNutrition.carbsG ?? aiNutrition?.carbsG ?? null;
+    const fatG = offNutrition.fatG ?? aiNutrition?.fatG ?? null;
+    const sugarG = offNutrition.sugarG ?? aiNutrition?.sugarG ?? null;
+
     return NextResponse.json({
       barcode,
       name,
@@ -99,11 +114,13 @@ export async function GET(req: Request) {
       brand: data.product.brands ?? null,
       nutritionPer100g: {
         caloriesKcal:
-          offNutrition.caloriesKcal ?? aiNutrition?.caloriesKcal ?? null,
-        proteinG: offNutrition.proteinG ?? aiNutrition?.proteinG ?? null,
-        carbsG: offNutrition.carbsG ?? aiNutrition?.carbsG ?? null,
-        fatG: offNutrition.fatG ?? aiNutrition?.fatG ?? null,
-        sugarG: offNutrition.sugarG ?? aiNutrition?.sugarG ?? null,
+          typeof caloriesKcal === "number"
+            ? roundCaloriesKcal(caloriesKcal)
+            : null,
+        proteinG: typeof proteinG === "number" ? roundMacroG(proteinG) : null,
+        carbsG: typeof carbsG === "number" ? roundMacroG(carbsG) : null,
+        fatG: typeof fatG === "number" ? roundMacroG(fatG) : null,
+        sugarG: typeof sugarG === "number" ? roundMacroG(sugarG) : null,
       },
     });
   } catch {
