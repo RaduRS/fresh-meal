@@ -74,9 +74,11 @@ Rules:
 - items: include only food items you are confident about
 - name: for packaged items, return the product name as a single item (include brand if visible). Do not split one package into multiple ingredients
 - name: for fresh items, use the most specific common UK name visible (e.g., "Cherry Tomatoes" not just "Tomatoes"), properly capitalized. If unsure, use the generic name
-- quantityUnit: one of "count","g","ml". Use "g" or "ml" only if the amount is clearly visible on packaging, otherwise "count"
-- quantity: number, use 1 if unclear. If quantityUnit is "g" or "ml", quantity can be a whole number
-- nutritionPer100g: include ONLY if you are confident (nutrition label is readable or the food is unambiguous). If unsure, set it to null or omit it. Use grams for macros and kcal for calories
+- quantityUnit: one of "count","g","ml"
+- quantity: number. This is the amount the user has.
+- If the pack size/volume is visible (e.g., "1kg", "500g", "2L", "750ml"), convert it to quantity+quantityUnit (kg->g, L->ml)
+- If the pack size is not visible, set quantityUnit="count" and quantity=1
+- nutritionPer100g: include if either (a) nutrition label is readable, or (b) the food is common and you can provide a reasonable best-effort estimate. Use grams for macros and kcal for calories. If you cannot provide a reasonable estimate, set it to null
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
 - do not include any extra keys or text`;
@@ -126,15 +128,13 @@ Rules:
       name: string;
       quantity: number;
       quantityUnit: "count" | "g" | "ml";
-      nutritionPer100g:
-        | {
-            caloriesKcal: number | null;
-            proteinG: number | null;
-            carbsG: number | null;
-            fatG: number | null;
-            sugarG: number | null;
-          }
-        | null;
+      nutritionPer100g: {
+        caloriesKcal: number | null;
+        proteinG: number | null;
+        carbsG: number | null;
+        fatG: number | null;
+        sugarG: number | null;
+      } | null;
       confidence: number;
     }
   >();
@@ -146,9 +146,13 @@ Rules:
 
     const q = Number(item.quantity);
     const c = Number(item.confidence);
-    const quantity = Number.isFinite(q) ? Math.max(0, Math.round(q * 100) / 100) : 1;
+    const quantity = Number.isFinite(q)
+      ? Math.max(0, Math.round(q * 100) / 100)
+      : 1;
     const unit =
-      item.quantityUnit === "g" || item.quantityUnit === "ml" || item.quantityUnit === "count"
+      item.quantityUnit === "g" ||
+      item.quantityUnit === "ml" ||
+      item.quantityUnit === "count"
         ? item.quantityUnit
         : "count";
     const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
@@ -161,10 +165,18 @@ Rules:
           caloriesKcal: Number.isFinite(Number(nutritionRaw.caloriesKcal))
             ? Number(nutritionRaw.caloriesKcal)
             : null,
-          proteinG: Number.isFinite(Number(nutritionRaw.proteinG)) ? Number(nutritionRaw.proteinG) : null,
-          carbsG: Number.isFinite(Number(nutritionRaw.carbsG)) ? Number(nutritionRaw.carbsG) : null,
-          fatG: Number.isFinite(Number(nutritionRaw.fatG)) ? Number(nutritionRaw.fatG) : null,
-          sugarG: Number.isFinite(Number(nutritionRaw.sugarG)) ? Number(nutritionRaw.sugarG) : null,
+          proteinG: Number.isFinite(Number(nutritionRaw.proteinG))
+            ? Number(nutritionRaw.proteinG)
+            : null,
+          carbsG: Number.isFinite(Number(nutritionRaw.carbsG))
+            ? Number(nutritionRaw.carbsG)
+            : null,
+          fatG: Number.isFinite(Number(nutritionRaw.fatG))
+            ? Number(nutritionRaw.fatG)
+            : null,
+          sugarG: Number.isFinite(Number(nutritionRaw.sugarG))
+            ? Number(nutritionRaw.sugarG)
+            : null,
         }
       : null;
 
@@ -173,22 +185,32 @@ Rules:
 
     const existing = deduped.get(key);
     if (!existing) {
-      deduped.set(key, { name, quantity, quantityUnit: unit, nutritionPer100g, confidence });
+      deduped.set(key, {
+        name,
+        quantity,
+        quantityUnit: unit,
+        nutritionPer100g,
+        confidence,
+      });
       continue;
     }
 
     const mergedNutrition =
       nutritionPer100g &&
       (!existing.nutritionPer100g ||
-        Object.values(nutritionPer100g).filter((v) => typeof v === "number").length >
-          Object.values(existing.nutritionPer100g).filter((v) => typeof v === "number").length)
+        Object.values(nutritionPer100g).filter((v) => typeof v === "number")
+          .length >
+          Object.values(existing.nutritionPer100g).filter(
+            (v) => typeof v === "number"
+          ).length)
         ? nutritionPer100g
         : existing.nutritionPer100g;
 
     deduped.set(key, {
       name: existing.name.length >= name.length ? existing.name : name,
       quantity: Math.max(existing.quantity, quantity),
-      quantityUnit: existing.confidence >= confidence ? existing.quantityUnit : unit,
+      quantityUnit:
+        existing.confidence >= confidence ? existing.quantityUnit : unit,
       nutritionPer100g: mergedNutrition,
       confidence: Math.max(existing.confidence, confidence),
     });

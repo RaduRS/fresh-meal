@@ -35,6 +35,101 @@ type AnalyzeItem = {
   confidence: number;
 };
 
+function parseAmount(input: { quantity: unknown; quantityUnit: unknown }): {
+  quantity: number;
+  quantityUnit: "count" | "g" | "ml";
+} {
+  const unitRaw =
+    typeof input.quantityUnit === "string" ? input.quantityUnit.trim() : "";
+  const directUnit =
+    unitRaw === "g" || unitRaw === "ml" || unitRaw === "count"
+      ? (unitRaw as "count" | "g" | "ml")
+      : null;
+
+  const numericQty = Number(input.quantity);
+  if (directUnit) {
+    const q = Number.isFinite(numericQty) ? numericQty : 1;
+    return {
+      quantity: Math.max(0, Math.round(q * 100) / 100),
+      quantityUnit: directUnit,
+    };
+  }
+
+  if (typeof input.quantity === "string") {
+    const text = input.quantity.trim().toLowerCase();
+    const m = text.match(/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|count)?$/);
+    if (m) {
+      const value = Number(m[1]);
+      const u = m[2] ?? "";
+      if (Number.isFinite(value)) {
+        if (u === "kg") {
+          return { quantity: Math.round(value * 1000), quantityUnit: "g" };
+        }
+        if (u === "g")
+          return { quantity: Math.round(value), quantityUnit: "g" };
+        if (u === "l") {
+          return { quantity: Math.round(value * 1000), quantityUnit: "ml" };
+        }
+        if (u === "ml")
+          return { quantity: Math.round(value), quantityUnit: "ml" };
+        if (u === "count")
+          return { quantity: Math.max(0, value), quantityUnit: "count" };
+      }
+    }
+  }
+
+  const fallback = Number.isFinite(numericQty) ? numericQty : 1;
+  return {
+    quantity: Math.max(0, Math.round(fallback * 100) / 100),
+    quantityUnit: "count",
+  };
+}
+
+function clampNutritionPer100g(nutrition: AnalyzeItem["nutritionPer100g"]) {
+  if (!nutrition) return undefined;
+  const caloriesKcal =
+    typeof nutrition.caloriesKcal === "number" &&
+    nutrition.caloriesKcal >= 0 &&
+    nutrition.caloriesKcal <= 900
+      ? nutrition.caloriesKcal
+      : null;
+  const proteinG =
+    typeof nutrition.proteinG === "number" &&
+    nutrition.proteinG >= 0 &&
+    nutrition.proteinG <= 100
+      ? nutrition.proteinG
+      : null;
+  const carbsG =
+    typeof nutrition.carbsG === "number" &&
+    nutrition.carbsG >= 0 &&
+    nutrition.carbsG <= 100
+      ? nutrition.carbsG
+      : null;
+  const fatG =
+    typeof nutrition.fatG === "number" &&
+    nutrition.fatG >= 0 &&
+    nutrition.fatG <= 100
+      ? nutrition.fatG
+      : null;
+  const sugarG =
+    typeof nutrition.sugarG === "number" &&
+    nutrition.sugarG >= 0 &&
+    nutrition.sugarG <= 100
+      ? nutrition.sugarG
+      : null;
+
+  if (
+    caloriesKcal === null &&
+    proteinG === null &&
+    carbsG === null &&
+    fatG === null &&
+    sugarG === null
+  )
+    return undefined;
+
+  return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
+}
+
 function makeId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto)
     return crypto.randomUUID();
@@ -59,33 +154,44 @@ function readItems(data: unknown): AnalyzeItem[] | null {
     if (!v || typeof v !== "object") continue;
     const obj = v as Record<string, unknown>;
     const name = typeof obj.name === "string" ? obj.name : "";
-    const quantity = Number(obj.quantity);
     const confidence = Number(obj.confidence);
-    const quantityUnitRaw = typeof obj.quantityUnit === "string" ? obj.quantityUnit : "";
-    const quantityUnit =
-      quantityUnitRaw === "g" || quantityUnitRaw === "ml" || quantityUnitRaw === "count"
-        ? (quantityUnitRaw as "count" | "g" | "ml")
-        : "count";
+    const amount = parseAmount({
+      quantity: obj.quantity,
+      quantityUnit: obj.quantityUnit,
+    });
     const nutritionRaw =
       obj.nutritionPer100g && typeof obj.nutritionPer100g === "object"
         ? (obj.nutritionPer100g as Record<string, unknown>)
         : null;
     const nutritionPer100g = nutritionRaw
       ? {
-          caloriesKcal: typeof nutritionRaw.caloriesKcal === "number" ? nutritionRaw.caloriesKcal : null,
-          proteinG: typeof nutritionRaw.proteinG === "number" ? nutritionRaw.proteinG : null,
-          carbsG: typeof nutritionRaw.carbsG === "number" ? nutritionRaw.carbsG : null,
-          fatG: typeof nutritionRaw.fatG === "number" ? nutritionRaw.fatG : null,
-          sugarG: typeof nutritionRaw.sugarG === "number" ? nutritionRaw.sugarG : null,
+          caloriesKcal:
+            typeof nutritionRaw.caloriesKcal === "number"
+              ? nutritionRaw.caloriesKcal
+              : null,
+          proteinG:
+            typeof nutritionRaw.proteinG === "number"
+              ? nutritionRaw.proteinG
+              : null,
+          carbsG:
+            typeof nutritionRaw.carbsG === "number"
+              ? nutritionRaw.carbsG
+              : null,
+          fatG:
+            typeof nutritionRaw.fatG === "number" ? nutritionRaw.fatG : null,
+          sugarG:
+            typeof nutritionRaw.sugarG === "number"
+              ? nutritionRaw.sugarG
+              : null,
         }
       : undefined;
     if (!name.trim()) continue;
 
     items.push({
       name: name.trim(),
-      quantity: Number.isFinite(quantity) ? quantity : 1,
-      quantityUnit,
-      nutritionPer100g,
+      quantity: amount.quantity,
+      quantityUnit: amount.quantityUnit,
+      nutritionPer100g: clampNutritionPer100g(nutritionPer100g),
       confidence: Number.isFinite(confidence) ? confidence : 0.8,
     });
   }
@@ -302,151 +408,194 @@ export function PhotoAddClient() {
                     </Button>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Input
-                      value={item.name}
-                      onChange={(e) => {
-                        const v = e.currentTarget.value;
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id ? { ...x, name: v } : x
-                          )
-                        );
-                      }}
-                      placeholder="Item name"
-                    />
-                    <Input
-                      value={item.quantity}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        const q = Number.isFinite(n)
-                          ? Math.max(0, Math.round(n * 100) / 100)
-                          : 1;
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id ? { ...x, quantity: q } : x
-                          )
-                        );
-                      }}
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.01"
-                    />
-                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <div className="grid gap-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        Item name
+                      </div>
+                      <Input
+                        value={item.name}
+                        onChange={(e) => {
+                          const v = e.currentTarget.value;
+                          setItems((prev) =>
+                            prev.map((x) =>
+                              x.id === item.id ? { ...x, name: v } : x
+                            )
+                          );
+                        }}
+                        placeholder="e.g., Brown rice"
+                      />
+                    </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <select
-                      className="h-9 rounded-md border bg-background px-3 text-sm"
-                      value={item.quantityUnit}
-                      onChange={(e) => {
-                        const v = e.currentTarget.value;
-                        const unit =
-                          v === "g" || v === "ml" || v === "count" ? v : "count";
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id ? { ...x, quantityUnit: unit } : x
-                          )
-                        );
-                      }}
-                    >
-                      <option value="count">Count</option>
-                      <option value="g">Grams</option>
-                      <option value="ml">ml</option>
-                    </select>
-                    <Input
-                      value={item.caloriesKcal100g ?? ""}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id
-                              ? {
-                                  ...x,
-                                  caloriesKcal100g: Number.isFinite(n) ? n : null,
-                                }
-                              : x
-                          )
-                        );
-                      }}
-                      placeholder="kcal/100g"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.1"
-                    />
-                    <Input
-                      value={item.proteinG100g ?? ""}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id
-                              ? { ...x, proteinG100g: Number.isFinite(n) ? n : null }
-                              : x
-                          )
-                        );
-                      }}
-                      placeholder="protein g/100g"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.1"
-                    />
-                    <Input
-                      value={item.carbsG100g ?? ""}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id
-                              ? { ...x, carbsG100g: Number.isFinite(n) ? n : null }
-                              : x
-                          )
-                        );
-                      }}
-                      placeholder="carbs g/100g"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.1"
-                    />
-                    <Input
-                      value={item.fatG100g ?? ""}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id
-                              ? { ...x, fatG100g: Number.isFinite(n) ? n : null }
-                              : x
-                          )
-                        );
-                      }}
-                      placeholder="fat g/100g"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.1"
-                    />
-                    <Input
-                      value={item.sugarG100g ?? ""}
-                      onChange={(e) => {
-                        const n = Number(e.currentTarget.value);
-                        setItems((prev) =>
-                          prev.map((x) =>
-                            x.id === item.id
-                              ? { ...x, sugarG100g: Number.isFinite(n) ? n : null }
-                              : x
-                          )
-                        );
-                      }}
-                      placeholder="sugar g/100g"
-                      type="number"
-                      inputMode="decimal"
-                      min={0}
-                      step="0.1"
-                    />
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="grid gap-1.5">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          Amount
+                        </div>
+                        <Input
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            const q = Number.isFinite(n)
+                              ? Math.max(0, Math.round(n * 100) / 100)
+                              : 0;
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id ? { ...x, quantity: q } : x
+                              )
+                            );
+                          }}
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.01"
+                        />
+                      </div>
+                      <div className="grid gap-1.5">
+                        <div className="text-xs font-medium text-muted-foreground">
+                          Unit
+                        </div>
+                        <select
+                          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                          value={item.quantityUnit}
+                          onChange={(e) => {
+                            const v = e.currentTarget.value;
+                            const unit =
+                              v === "g" || v === "ml" || v === "count"
+                                ? v
+                                : "count";
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? { ...x, quantityUnit: unit }
+                                  : x
+                              )
+                            );
+                          }}
+                        >
+                          <option value="count">Count</option>
+                          <option value="g">Grams</option>
+                          <option value="ml">ml</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border bg-card p-3">
+                      <div className="text-xs font-medium text-muted-foreground">
+                        Macros per 100g (optional)
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        <Input
+                          value={item.caloriesKcal100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      caloriesKcal100g: Number.isFinite(n)
+                                        ? n
+                                        : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          placeholder="kcal"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.1"
+                        />
+                        <Input
+                          value={item.proteinG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      proteinG100g: Number.isFinite(n)
+                                        ? n
+                                        : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          placeholder="protein (g)"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.1"
+                        />
+                        <Input
+                          value={item.carbsG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      carbsG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          placeholder="carbs (g)"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.1"
+                        />
+                        <Input
+                          value={item.fatG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      fatG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          placeholder="fat (g)"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.1"
+                        />
+                        <Input
+                          value={item.sugarG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      sugarG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          placeholder="sugar (g)"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          step="0.1"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}

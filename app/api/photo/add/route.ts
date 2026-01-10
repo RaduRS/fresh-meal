@@ -19,6 +19,91 @@ type AddItemInput = {
   } | null;
 };
 
+function parseAmount(input: { quantity: unknown; quantityUnit: unknown }): {
+  quantity: number;
+  quantityUnit: "count" | "g" | "ml";
+} {
+  const unitRaw =
+    typeof input.quantityUnit === "string" ? input.quantityUnit.trim() : "";
+  const directUnit =
+    unitRaw === "g" || unitRaw === "ml" || unitRaw === "count"
+      ? (unitRaw as "count" | "g" | "ml")
+      : null;
+
+  const numericQty = Number(input.quantity);
+  if (directUnit) {
+    const q = Number.isFinite(numericQty) ? numericQty : 1;
+    return {
+      quantity: Math.max(0, Math.round(q * 100) / 100),
+      quantityUnit: directUnit,
+    };
+  }
+
+  if (typeof input.quantity === "string") {
+    const text = input.quantity.trim().toLowerCase();
+    const m = text.match(/^(\d+(?:\.\d+)?)\s*(kg|g|l|ml|count)?$/);
+    if (m) {
+      const value = Number(m[1]);
+      const u = m[2] ?? "";
+      if (Number.isFinite(value)) {
+        if (u === "kg")
+          return { quantity: Math.round(value * 1000), quantityUnit: "g" };
+        if (u === "g")
+          return { quantity: Math.round(value), quantityUnit: "g" };
+        if (u === "l")
+          return { quantity: Math.round(value * 1000), quantityUnit: "ml" };
+        if (u === "ml")
+          return { quantity: Math.round(value), quantityUnit: "ml" };
+        if (u === "count")
+          return { quantity: Math.max(0, value), quantityUnit: "count" };
+      }
+    }
+  }
+
+  const fallback = Number.isFinite(numericQty) ? numericQty : 1;
+  return {
+    quantity: Math.max(0, Math.round(fallback * 100) / 100),
+    quantityUnit: "count",
+  };
+}
+
+function clampNutrition(nutritionRaw: Record<string, unknown>) {
+  const caloriesRaw = nutritionRaw.caloriesKcal;
+  const caloriesKcal =
+    typeof caloriesRaw === "number" && caloriesRaw >= 0 && caloriesRaw <= 900
+      ? caloriesRaw
+      : null;
+  const proteinRaw = nutritionRaw.proteinG;
+  const proteinG =
+    typeof proteinRaw === "number" && proteinRaw >= 0 && proteinRaw <= 100
+      ? proteinRaw
+      : null;
+  const carbsRaw = nutritionRaw.carbsG;
+  const carbsG =
+    typeof carbsRaw === "number" && carbsRaw >= 0 && carbsRaw <= 100
+      ? carbsRaw
+      : null;
+  const fatRaw = nutritionRaw.fatG;
+  const fatG =
+    typeof fatRaw === "number" && fatRaw >= 0 && fatRaw <= 100 ? fatRaw : null;
+  const sugarRaw = nutritionRaw.sugarG;
+  const sugarG =
+    typeof sugarRaw === "number" && sugarRaw >= 0 && sugarRaw <= 100
+      ? sugarRaw
+      : null;
+
+  if (
+    caloriesKcal === null &&
+    proteinG === null &&
+    carbsG === null &&
+    fatG === null &&
+    sugarG === null
+  )
+    return null;
+
+  return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
+}
+
 function readItems(data: unknown): AddItemInput[] | null {
   if (!data || typeof data !== "object") return null;
   if (!("items" in data)) return null;
@@ -30,44 +115,22 @@ function readItems(data: unknown): AddItemInput[] | null {
     if (!v || typeof v !== "object") continue;
     const obj = v as Record<string, unknown>;
     const name = typeof obj.name === "string" ? obj.name.trim() : "";
-    const quantityRaw = Number(obj.quantity);
-    const quantity = Number.isFinite(quantityRaw)
-      ? Math.max(0, Math.round(quantityRaw * 100) / 100)
-      : 1;
-    const unitRaw =
-      typeof obj.quantityUnit === "string" ? obj.quantityUnit.trim() : "";
-    const quantityUnit =
-      unitRaw === "g" || unitRaw === "ml" || unitRaw === "count"
-        ? unitRaw
-        : "count";
+    const amount = parseAmount({
+      quantity: obj.quantity,
+      quantityUnit: obj.quantityUnit,
+    });
     const nutritionRaw =
       obj.nutritionPer100g && typeof obj.nutritionPer100g === "object"
         ? (obj.nutritionPer100g as Record<string, unknown>)
         : null;
-    const nutritionPer100g = nutritionRaw
-      ? {
-          caloriesKcal:
-            typeof nutritionRaw.caloriesKcal === "number"
-              ? nutritionRaw.caloriesKcal
-              : null,
-          proteinG:
-            typeof nutritionRaw.proteinG === "number"
-              ? nutritionRaw.proteinG
-              : null,
-          carbsG:
-            typeof nutritionRaw.carbsG === "number"
-              ? nutritionRaw.carbsG
-              : null,
-          fatG:
-            typeof nutritionRaw.fatG === "number" ? nutritionRaw.fatG : null,
-          sugarG:
-            typeof nutritionRaw.sugarG === "number"
-              ? nutritionRaw.sugarG
-              : null,
-        }
-      : null;
+    const nutritionPer100g = nutritionRaw ? clampNutrition(nutritionRaw) : null;
     if (!name) continue;
-    items.push({ name, quantity, quantityUnit, nutritionPer100g });
+    items.push({
+      name,
+      quantity: amount.quantity,
+      quantityUnit: amount.quantityUnit,
+      nutritionPer100g,
+    });
   }
 
   return items.slice(0, 50);
