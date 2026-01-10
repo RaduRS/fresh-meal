@@ -302,6 +302,20 @@ export function PhotoAddClient() {
             });
             const data = (await res.json()) as unknown;
             if (!res.ok) {
+              if (res.status === 429) {
+                const retrySeconds =
+                  data && typeof data === "object" && "retrySeconds" in data
+                    ? Number((data as { retrySeconds?: unknown }).retrySeconds)
+                    : NaN;
+                if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+                  setAnalyzeError(
+                    `Rate limit reached. Try again in ~${Math.ceil(
+                      retrySeconds
+                    )}s.`
+                  );
+                  return;
+                }
+              }
               setAnalyzeError(
                 readError(data) ?? "Could not analyze photo. Try again."
               );

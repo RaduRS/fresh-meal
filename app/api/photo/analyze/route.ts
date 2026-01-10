@@ -4,6 +4,14 @@ import { detectPantryItemsFromImage } from "@/lib/ai/gemini";
 
 export const runtime = "nodejs";
 
+function parseRetrySeconds(message: string) {
+  const m = message.match(/retry in\s+([0-9.]+)s/i);
+  if (!m) return null;
+  const seconds = Number(m[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(120, Math.ceil(seconds));
+}
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
@@ -43,6 +51,18 @@ export async function POST(req: Request) {
       e instanceof Error && e.message
         ? e.message.slice(0, 800)
         : "Could not analyze photo. Try again.";
+
+    if (message.includes("Gemini error (429)")) {
+      const retrySeconds = parseRetrySeconds(message) ?? 25;
+      return NextResponse.json(
+        {
+          error: `Rate limit reached. Try again in ~${retrySeconds}s.`,
+          retrySeconds,
+        },
+        { status: 429, headers: { "Retry-After": String(retrySeconds) } }
+      );
+    }
+
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
