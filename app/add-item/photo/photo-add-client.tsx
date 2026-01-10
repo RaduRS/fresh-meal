@@ -7,6 +7,7 @@ import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MacroIconInput } from "@/components/ui/macro-icon-input";
 
 type UIItem = {
   id: string;
@@ -333,6 +334,26 @@ export function PhotoAddClient() {
             setAddError(null);
             if (selectedCount === 0) return;
 
+            const missingMacros = items
+              .filter((i) => i.selected)
+              .filter(
+                (i) =>
+                  typeof i.caloriesKcal100g !== "number" ||
+                  typeof i.proteinG100g !== "number" ||
+                  typeof i.carbsG100g !== "number" ||
+                  typeof i.fatG100g !== "number" ||
+                  typeof i.sugarG100g !== "number"
+              );
+            if (missingMacros.length > 0) {
+              setAddError(
+                `Missing macros for: ${missingMacros
+                  .slice(0, 3)
+                  .map((x) => x.name)
+                  .join(", ")}${missingMacros.length > 3 ? "…" : ""}`
+              );
+              return;
+            }
+
             setAdding(true);
             try {
               const res = await fetch("/api/photo/add", {
@@ -475,160 +496,111 @@ export function PhotoAddClient() {
                           }}
                         >
                           <option value="count">Count</option>
-                          <option value="g">Grams</option>
-                          <option value="ml">ml</option>
+                          <option value="g">Grams (g)</option>
+                          <option value="ml">Milliliters (mL)</option>
                         </select>
                       </div>
                     </div>
 
                     <div className="rounded-lg border bg-card p-3">
                       <div className="text-xs font-medium text-muted-foreground">
-                        Macros per 100g (optional)
+                        Macros per 100g
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                        <div className="grid gap-1">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Flame className="size-3 text-orange-600" />
-                            kcal
-                          </div>
-                          <Input
-                            value={item.caloriesKcal100g ?? ""}
-                            onChange={(e) => {
-                              const n = Number(e.currentTarget.value);
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id
-                                    ? {
-                                        ...x,
-                                        caloriesKcal100g: Number.isFinite(n)
-                                          ? n
-                                          : null,
-                                      }
-                                    : x
-                                )
-                              );
-                            }}
-                            placeholder="kcal/100g"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.1"
-                          />
-                        </div>
-                        <div className="grid gap-1">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Beef className="size-3 text-sky-600" />
-                            protein (g)
-                          </div>
-                          <Input
-                            value={item.proteinG100g ?? ""}
-                            onChange={(e) => {
-                              const n = Number(e.currentTarget.value);
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id
-                                    ? {
-                                        ...x,
-                                        proteinG100g: Number.isFinite(n)
-                                          ? n
-                                          : null,
-                                      }
-                                    : x
-                                )
-                              );
-                            }}
-                            placeholder="g/100g"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.1"
-                          />
-                        </div>
-                        <div className="grid gap-1">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Wheat className="size-3 text-amber-600" />
-                            carbs (g)
-                          </div>
-                          <Input
-                            value={item.carbsG100g ?? ""}
-                            onChange={(e) => {
-                              const n = Number(e.currentTarget.value);
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id
-                                    ? {
-                                        ...x,
-                                        carbsG100g: Number.isFinite(n)
-                                          ? n
-                                          : null,
-                                      }
-                                    : x
-                                )
-                              );
-                            }}
-                            placeholder="g/100g"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.1"
-                          />
-                        </div>
-                        <div className="grid gap-1">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Droplet className="size-3 text-yellow-600" />
-                            fat (g)
-                          </div>
-                          <Input
-                            value={item.fatG100g ?? ""}
-                            onChange={(e) => {
-                              const n = Number(e.currentTarget.value);
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id
-                                    ? {
-                                        ...x,
-                                        fatG100g: Number.isFinite(n) ? n : null,
-                                      }
-                                    : x
-                                )
-                              );
-                            }}
-                            placeholder="g/100g"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.1"
-                          />
-                        </div>
-                        <div className="grid gap-1">
-                          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <Candy className="size-3 text-pink-600" />
-                            sugar (g)
-                          </div>
-                          <Input
-                            value={item.sugarG100g ?? ""}
-                            onChange={(e) => {
-                              const n = Number(e.currentTarget.value);
-                              setItems((prev) =>
-                                prev.map((x) =>
-                                  x.id === item.id
-                                    ? {
-                                        ...x,
-                                        sugarG100g: Number.isFinite(n)
-                                          ? n
-                                          : null,
-                                      }
-                                    : x
-                                )
-                              );
-                            }}
-                            placeholder="g/100g"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            step="0.1"
-                          />
-                        </div>
+                        <MacroIconInput
+                          value={item.caloriesKcal100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      caloriesKcal100g: Number.isFinite(n)
+                                        ? n
+                                        : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          aria-label="Calories (kcal per 100g)"
+                          icon={<Flame className="size-4 text-orange-600" />}
+                        />
+                        <MacroIconInput
+                          value={item.proteinG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      proteinG100g: Number.isFinite(n)
+                                        ? n
+                                        : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          aria-label="Protein (g per 100g)"
+                          icon={<Beef className="size-4 text-sky-600" />}
+                        />
+                        <MacroIconInput
+                          value={item.carbsG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      carbsG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          aria-label="Carbs (g per 100g)"
+                          icon={<Wheat className="size-4 text-amber-600" />}
+                        />
+                        <MacroIconInput
+                          value={item.fatG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      fatG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          aria-label="Fat (g per 100g)"
+                          icon={<Droplet className="size-4 text-yellow-600" />}
+                        />
+                        <MacroIconInput
+                          value={item.sugarG100g ?? ""}
+                          onChange={(e) => {
+                            const n = Number(e.currentTarget.value);
+                            setItems((prev) =>
+                              prev.map((x) =>
+                                x.id === item.id
+                                  ? {
+                                      ...x,
+                                      sugarG100g: Number.isFinite(n) ? n : null,
+                                    }
+                                  : x
+                              )
+                            );
+                          }}
+                          aria-label="Sugar (g per 100g)"
+                          icon={<Candy className="size-4 text-pink-600" />}
+                        />
                       </div>
                     </div>
                   </div>

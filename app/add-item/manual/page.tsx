@@ -3,8 +3,10 @@ import { ManualAddSubmitButton } from "@/app/add-item/manual/submit-button";
 import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MacroIconInput } from "@/components/ui/macro-icon-input";
 import { Select } from "@/components/ui/select";
 import { getPantryItemById } from "@/lib/pantry";
+import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -67,87 +69,73 @@ export default async function ManualAddItemPage(props: {
                 defaultValue={item?.quantity_unit ?? "count"}
               >
                 <option value="count">Count</option>
-                <option value="g">Grams</option>
-                <option value="ml">ml</option>
+                <option value="g">Grams (g)</option>
+                <option value="ml">Milliliters (mL)</option>
               </Select>
             </div>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="servingSize">Pack size (optional)</Label>
-            <Input
-              id="servingSize"
-              name="servingSize"
-              placeholder="e.g., 200g or 850ml"
-              autoComplete="off"
-              defaultValue={item?.serving_size ?? ""}
+          <div className="text-xs text-muted-foreground">Macros per 100g</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Label htmlFor="caloriesKcal100g" className="sr-only">
+              Calories (kcal per 100g)
+            </Label>
+            <MacroIconInput
+              id="caloriesKcal100g"
+              name="caloriesKcal100g"
+              required
+              defaultValue={item?.calories_kcal_100g ?? ""}
+              aria-label="Calories (kcal per 100g)"
+              icon={<Flame className="size-4 text-orange-600" />}
             />
-          </div>
 
-          <div className="text-xs text-muted-foreground">
-            Macros per 100g (optional)
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="caloriesKcal100g">Calories</Label>
-              <Input
-                id="caloriesKcal100g"
-                name="caloriesKcal100g"
-                type="number"
-                inputMode="decimal"
-                step="0.1"
-                min={0}
-                defaultValue={item?.calories_kcal_100g ?? ""}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="proteinG100g">Protein (g)</Label>
-              <Input
-                id="proteinG100g"
-                name="proteinG100g"
-                type="number"
-                inputMode="decimal"
-                step="0.1"
-                min={0}
-                defaultValue={item?.protein_g_100g ?? ""}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="carbsG100g">Carbs (g)</Label>
-              <Input
-                id="carbsG100g"
-                name="carbsG100g"
-                type="number"
-                inputMode="decimal"
-                step="0.1"
-                min={0}
-                defaultValue={item?.carbs_g_100g ?? ""}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="fatG100g">Fat (g)</Label>
-              <Input
-                id="fatG100g"
-                name="fatG100g"
-                type="number"
-                inputMode="decimal"
-                step="0.1"
-                min={0}
-                defaultValue={item?.fat_g_100g ?? ""}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="sugarG100g">Sugar (g)</Label>
-              <Input
-                id="sugarG100g"
-                name="sugarG100g"
-                type="number"
-                inputMode="decimal"
-                step="0.1"
-                min={0}
-                defaultValue={item?.sugar_g_100g ?? ""}
-              />
-            </div>
+            <Label htmlFor="proteinG100g" className="sr-only">
+              Protein (g per 100g)
+            </Label>
+            <MacroIconInput
+              id="proteinG100g"
+              name="proteinG100g"
+              required
+              defaultValue={item?.protein_g_100g ?? ""}
+              aria-label="Protein (g per 100g)"
+              icon={<Beef className="size-4 text-sky-600" />}
+            />
+
+            <Label htmlFor="carbsG100g" className="sr-only">
+              Carbs (g per 100g)
+            </Label>
+            <MacroIconInput
+              id="carbsG100g"
+              name="carbsG100g"
+              required
+              defaultValue={item?.carbs_g_100g ?? ""}
+              aria-label="Carbs (g per 100g)"
+              icon={<Wheat className="size-4 text-amber-600" />}
+            />
+
+            <Label htmlFor="fatG100g" className="sr-only">
+              Fat (g per 100g)
+            </Label>
+            <MacroIconInput
+              id="fatG100g"
+              name="fatG100g"
+              required
+              defaultValue={item?.fat_g_100g ?? ""}
+              aria-label="Fat (g per 100g)"
+              icon={<Droplet className="size-4 text-yellow-600" />}
+            />
+
+            <Label htmlFor="sugarG100g" className="sr-only">
+              Sugar (g per 100g)
+            </Label>
+            <MacroIconInput
+              id="sugarG100g"
+              name="sugarG100g"
+              required
+              defaultValue={item?.sugar_g_100g ?? ""}
+              aria-label="Sugar (g per 100g)"
+              icon={<Candy className="size-4 text-pink-600" />}
+            />
           </div>
 
           <ManualAddSubmitButton mode={mode} />

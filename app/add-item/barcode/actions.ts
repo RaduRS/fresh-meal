@@ -27,6 +27,14 @@ function parseOptionalNumber(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : null;
 }
 
+function parseRequiredNumber(value: FormDataEntryValue | null) {
+  const n = parseOptionalNumber(value);
+  if (typeof n !== "number") {
+    throw new Error("Missing macros");
+  }
+  return n;
+}
+
 export async function addBarcodeItemAction(formData: FormData) {
   const rawName = String(formData.get("name") ?? "").trim();
   const barcode = String(formData.get("barcode") ?? "").trim();
@@ -35,14 +43,13 @@ export async function addBarcodeItemAction(formData: FormData) {
   const quantityUnit = parseUnit(
     String(formData.get("quantityUnit") ?? "count")
   );
-  const servingSize = String(formData.get("servingSize") ?? "").trim() || null;
-  const caloriesKcal100g = parseOptionalNumber(
+  const caloriesKcal100g = parseRequiredNumber(
     formData.get("caloriesKcal100g")
   );
-  const proteinG100g = parseOptionalNumber(formData.get("proteinG100g"));
-  const carbsG100g = parseOptionalNumber(formData.get("carbsG100g"));
-  const fatG100g = parseOptionalNumber(formData.get("fatG100g"));
-  const sugarG100g = parseOptionalNumber(formData.get("sugarG100g"));
+  const proteinG100g = parseRequiredNumber(formData.get("proteinG100g"));
+  const carbsG100g = parseRequiredNumber(formData.get("carbsG100g"));
+  const fatG100g = parseRequiredNumber(formData.get("fatG100g"));
+  const sugarG100g = parseRequiredNumber(formData.get("sugarG100g"));
 
   if (!rawName) return;
 
@@ -56,7 +63,6 @@ export async function addBarcodeItemAction(formData: FormData) {
     category,
     quantity,
     quantityUnit,
-    servingSize,
     caloriesKcal100g,
     proteinG100g,
     carbsG100g,

@@ -15,7 +15,6 @@ type PantryItem = {
   category: string;
   quantity: number;
   quantity_unit: "count" | "g" | "ml";
-  serving_size: string | null;
   calories_kcal_100g: number | null;
   protein_g_100g: number | null;
   carbs_g_100g: number | null;
@@ -37,49 +36,6 @@ function formatQuantity(item: PantryItem) {
   const rounded = Math.round(qty * 100) / 100;
   if (unit === "count") return `${rounded}`;
   return `${rounded}${unit}`;
-}
-
-function parseServingSize(
-  raw: string | null,
-  quantityUnit: PantryItem["quantity_unit"]
-) {
-  const text = String(raw ?? "").trim();
-  if (!text) return null;
-
-  const m = text.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$/);
-  if (!m) return { text, value: null, unit: null };
-
-  const value = Number(m[1]);
-  if (!Number.isFinite(value)) return { text, value: null, unit: null };
-
-  const unitRaw = (m[2] ?? "").trim().toLowerCase();
-  if (!unitRaw) {
-    if (quantityUnit === "g" || quantityUnit === "ml") {
-      return { text: `${value}${quantityUnit}`, value, unit: quantityUnit };
-    }
-    return { text, value, unit: null };
-  }
-
-  if (
-    unitRaw === "g" ||
-    unitRaw === "gram" ||
-    unitRaw === "grams" ||
-    unitRaw === "gr"
-  )
-    return { text: `${value}g`, value, unit: "g" as const };
-  if (unitRaw === "ml")
-    return { text: `${value}ml`, value, unit: "ml" as const };
-  if (
-    unitRaw === "l" ||
-    unitRaw === "lt" ||
-    unitRaw === "liter" ||
-    unitRaw === "litre"
-  ) {
-    const ml = Math.round(value * 1000 * 100) / 100;
-    return { text: `${ml}ml`, value: ml, unit: "ml" as const };
-  }
-
-  return { text, value, unit: null };
 }
 
 function macroChips(item: PantryItem) {
@@ -245,10 +201,6 @@ export function InventoryClient(props: {
         <div className="mt-4 grid grid-cols-1 gap-3">
           {filtered.map((item) => {
             const macroValues = macroChips(item);
-            const serving = parseServingSize(
-              item.serving_size,
-              item.quantity_unit
-            );
             const isOpen = openId === item.id;
             const currentTranslateX =
               drag?.id === item.id
@@ -256,22 +208,6 @@ export function InventoryClient(props: {
                 : isOpen
                 ? -actionRevealPx
                 : 0;
-            const qtyRounded = Number.isFinite(item.quantity)
-              ? Math.round(item.quantity * 100) / 100
-              : 0;
-            const showAmountChip =
-              item.quantity_unit === "count" ||
-              !(
-                qtyRounded === 1 &&
-                serving?.unit === item.quantity_unit &&
-                typeof serving.value === "number"
-              );
-            const totalAmount =
-              item.quantity_unit === "count" &&
-              serving?.unit &&
-              typeof serving.value === "number"
-                ? Math.round(qtyRounded * serving.value * 100) / 100
-                : null;
 
             return (
               <div
@@ -362,29 +298,11 @@ export function InventoryClient(props: {
                           <span className="max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
                             {item.category}
                           </span>
-                          {showAmountChip ? (
-                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                              {item.quantity_unit === "count"
-                                ? `Qty: ${formatQuantity(item)}`
-                                : formatQuantity(item)}
-                            </span>
-                          ) : null}
-                          {serving ? (
-                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                              {item.quantity_unit === "count"
-                                ? `× ${serving.text}`
-                                : serving.text}
-                            </span>
-                          ) : null}
-                          {typeof totalAmount === "number" &&
-                          Number.isFinite(totalAmount) &&
-                          totalAmount > 0 &&
-                          serving?.unit ? (
-                            <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                              Total: {totalAmount}
-                              {serving.unit}
-                            </span>
-                          ) : null}
+                          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {item.quantity_unit === "count"
+                              ? `Qty: ${formatQuantity(item)}`
+                              : formatQuantity(item)}
+                          </span>
                         </div>
                       </div>
                     </div>

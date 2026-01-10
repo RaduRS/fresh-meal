@@ -3,12 +3,14 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
+import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
 
 import { addBarcodeItemAction } from "./actions";
 import { BarcodeScanner } from "./barcode-scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MacroIconInput } from "@/components/ui/macro-icon-input";
 import { Select } from "@/components/ui/select";
 
 type LookupResult = {
@@ -16,7 +18,6 @@ type LookupResult = {
   name: string;
   imageUrl: string | null;
   brand: string | null;
-  servingSize: string | null;
   nutritionPer100g: {
     caloriesKcal: number | null;
     proteinG: number | null;
@@ -40,8 +41,6 @@ function readLookup(data: unknown): LookupResult | null {
   const name = typeof obj.name === "string" ? obj.name : "";
   const imageUrl = typeof obj.imageUrl === "string" ? obj.imageUrl : null;
   const brand = typeof obj.brand === "string" ? obj.brand : null;
-  const servingSize =
-    typeof obj.servingSize === "string" ? obj.servingSize : null;
   const nutritionRaw =
     obj.nutritionPer100g && typeof obj.nutritionPer100g === "object"
       ? (obj.nutritionPer100g as Record<string, unknown>)
@@ -69,7 +68,7 @@ function readLookup(data: unknown): LookupResult | null {
         : null,
   };
   if (!barcode.trim() || !name.trim()) return null;
-  return { barcode, name, imageUrl, brand, servingSize, nutritionPer100g };
+  return { barcode, name, imageUrl, brand, nutritionPer100g };
 }
 
 function BarcodeAddSubmitButton() {
@@ -175,31 +174,6 @@ export function BarcodeAddClient() {
         >
           <input type="hidden" name="barcode" value={result.barcode} />
           <input type="hidden" name="imageUrl" value={result.imageUrl ?? ""} />
-          <input
-            type="hidden"
-            name="caloriesKcal100g"
-            value={result.nutritionPer100g.caloriesKcal ?? ""}
-          />
-          <input
-            type="hidden"
-            name="proteinG100g"
-            value={result.nutritionPer100g.proteinG ?? ""}
-          />
-          <input
-            type="hidden"
-            name="carbsG100g"
-            value={result.nutritionPer100g.carbsG ?? ""}
-          />
-          <input
-            type="hidden"
-            name="fatG100g"
-            value={result.nutritionPer100g.fatG ?? ""}
-          />
-          <input
-            type="hidden"
-            name="sugarG100g"
-            value={result.nutritionPer100g.sugarG ?? ""}
-          />
 
           <div className="grid grid-cols-1 gap-4">
             <div className="text-sm font-medium">Confirm product</div>
@@ -226,17 +200,6 @@ export function BarcodeAddClient() {
               />
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="servingSize">Pack size (optional)</Label>
-              <Input
-                id="servingSize"
-                name="servingSize"
-                defaultValue={result.servingSize ?? ""}
-                placeholder="e.g., 200g or 850ml"
-                autoComplete="off"
-              />
-            </div>
-
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="grid gap-2">
                 <Label htmlFor="quantity">Amount</Label>
@@ -258,9 +221,76 @@ export function BarcodeAddClient() {
                   defaultValue="count"
                 >
                   <option value="count">Count</option>
-                  <option value="g">Grams</option>
-                  <option value="ml">ml</option>
+                  <option value="g">Grams (g)</option>
+                  <option value="ml">Milliliters (mL)</option>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-xs text-muted-foreground">
+                Macros per 100g
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Label htmlFor="caloriesKcal100g" className="sr-only">
+                  Calories (kcal per 100g)
+                </Label>
+                <MacroIconInput
+                  id="caloriesKcal100g"
+                  name="caloriesKcal100g"
+                  required
+                  defaultValue={result.nutritionPer100g.caloriesKcal ?? ""}
+                  aria-label="Calories (kcal per 100g)"
+                  icon={<Flame className="size-4 text-orange-600" />}
+                />
+
+                <Label htmlFor="proteinG100g" className="sr-only">
+                  Protein (g per 100g)
+                </Label>
+                <MacroIconInput
+                  id="proteinG100g"
+                  name="proteinG100g"
+                  required
+                  defaultValue={result.nutritionPer100g.proteinG ?? ""}
+                  aria-label="Protein (g per 100g)"
+                  icon={<Beef className="size-4 text-sky-600" />}
+                />
+
+                <Label htmlFor="carbsG100g" className="sr-only">
+                  Carbs (g per 100g)
+                </Label>
+                <MacroIconInput
+                  id="carbsG100g"
+                  name="carbsG100g"
+                  required
+                  defaultValue={result.nutritionPer100g.carbsG ?? ""}
+                  aria-label="Carbs (g per 100g)"
+                  icon={<Wheat className="size-4 text-amber-600" />}
+                />
+
+                <Label htmlFor="fatG100g" className="sr-only">
+                  Fat (g per 100g)
+                </Label>
+                <MacroIconInput
+                  id="fatG100g"
+                  name="fatG100g"
+                  required
+                  defaultValue={result.nutritionPer100g.fatG ?? ""}
+                  aria-label="Fat (g per 100g)"
+                  icon={<Droplet className="size-4 text-yellow-600" />}
+                />
+
+                <Label htmlFor="sugarG100g" className="sr-only">
+                  Sugar (g per 100g)
+                </Label>
+                <MacroIconInput
+                  id="sugarG100g"
+                  name="sugarG100g"
+                  required
+                  defaultValue={result.nutritionPer100g.sugarG ?? ""}
+                  aria-label="Sugar (g per 100g)"
+                  icon={<Candy className="size-4 text-pink-600" />}
+                />
               </div>
             </div>
 

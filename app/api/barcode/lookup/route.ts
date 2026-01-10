@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { estimateNutritionPer100gFromText } from "@/lib/ai/gemini";
+
 type OFFProductResponse = {
   status: number;
   product?: {
@@ -9,16 +11,12 @@ type OFFProductResponse = {
     image_front_url?: string;
     quantity?: string;
     brands?: string;
-    serving_size?: string;
     nutriments?: Record<string, unknown>;
   };
 };
 
 function pickName(p: OFFProductResponse["product"]) {
-  const name =
-    p?.product_name?.trim() ||
-    p?.product_name_en?.trim() ||
-    "";
+  const name = p?.product_name?.trim() || p?.product_name_en?.trim() || "";
   return name;
 }
 
@@ -40,7 +38,7 @@ export async function GET(req: Request) {
   }
 
   const offUrl = `https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(
-    barcode,
+    barcode
   )}.json`;
 
   try {
@@ -52,7 +50,7 @@ export async function GET(req: Request) {
     if (!res.ok) {
       return NextResponse.json(
         { error: "Barcode lookup failed." },
-        { status: 502 },
+        { status: 502 }
       );
     }
 
@@ -60,7 +58,7 @@ export async function GET(req: Request) {
     if (data.status !== 1 || !data.product) {
       return NextResponse.json(
         { error: "Product not found." },
-        { status: 404 },
+        { status: 404 }
       );
     }
 
@@ -68,25 +66,50 @@ export async function GET(req: Request) {
     if (!name) {
       return NextResponse.json(
         { error: "Product found, but missing name." },
-        { status: 502 },
+        { status: 502 }
       );
     }
+
+    const offNutrition = {
+      caloriesKcal: readNumber(data.product.nutriments?.["energy-kcal_100g"]),
+      proteinG: readNumber(data.product.nutriments?.["proteins_100g"]),
+      carbsG: readNumber(data.product.nutriments?.["carbohydrates_100g"]),
+      fatG: readNumber(data.product.nutriments?.["fat_100g"]),
+      sugarG: readNumber(data.product.nutriments?.["sugars_100g"]),
+    };
+
+    const needsAi =
+      offNutrition.caloriesKcal === null ||
+      offNutrition.proteinG === null ||
+      offNutrition.carbsG === null ||
+      offNutrition.fatG === null ||
+      offNutrition.sugarG === null;
+
+    const aiNutrition = needsAi
+      ? await estimateNutritionPer100gFromText({
+          name,
+          brand: data.product.brands ?? null,
+        })
+      : null;
 
     return NextResponse.json({
       barcode,
       name,
       imageUrl: pickImage(data.product),
       brand: data.product.brands ?? null,
-      servingSize: data.product.serving_size?.trim() || null,
       nutritionPer100g: {
-        caloriesKcal: readNumber(data.product.nutriments?.["energy-kcal_100g"]),
-        proteinG: readNumber(data.product.nutriments?.["proteins_100g"]),
-        carbsG: readNumber(data.product.nutriments?.["carbohydrates_100g"]),
-        fatG: readNumber(data.product.nutriments?.["fat_100g"]),
-        sugarG: readNumber(data.product.nutriments?.["sugars_100g"]),
+        caloriesKcal:
+          offNutrition.caloriesKcal ?? aiNutrition?.caloriesKcal ?? null,
+        proteinG: offNutrition.proteinG ?? aiNutrition?.proteinG ?? null,
+        carbsG: offNutrition.carbsG ?? aiNutrition?.carbsG ?? null,
+        fatG: offNutrition.fatG ?? aiNutrition?.fatG ?? null,
+        sugarG: offNutrition.sugarG ?? aiNutrition?.sugarG ?? null,
       },
     });
   } catch {
-    return NextResponse.json({ error: "Barcode lookup failed." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Barcode lookup failed." },
+      { status: 500 }
+    );
   }
 }

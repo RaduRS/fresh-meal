@@ -104,6 +104,25 @@ function clampNutrition(nutritionRaw: Record<string, unknown>) {
   return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
 }
 
+function requireNutritionPer100g(nutrition: AddItemInput["nutritionPer100g"]) {
+  if (!nutrition) return null;
+  if (
+    typeof nutrition.caloriesKcal !== "number" ||
+    typeof nutrition.proteinG !== "number" ||
+    typeof nutrition.carbsG !== "number" ||
+    typeof nutrition.fatG !== "number" ||
+    typeof nutrition.sugarG !== "number"
+  )
+    return null;
+  return nutrition as {
+    caloriesKcal: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    sugarG: number;
+  };
+}
+
 function readItems(data: unknown): AddItemInput[] | null {
   if (!data || typeof data !== "object") return null;
   if (!("items" in data)) return null;
@@ -146,6 +165,14 @@ export async function POST(req: Request) {
 
     let added = 0;
     for (const item of items) {
+      const nutritionPer100g = requireNutritionPer100g(item.nutritionPer100g);
+      if (!nutritionPer100g) {
+        return NextResponse.json(
+          { error: "Missing macros for one or more items." },
+          { status: 400 }
+        );
+      }
+
       const name = await normalizePantryItemName(item.name);
       if (!name) continue;
       const category = await suggestPantryCategory(name);
@@ -154,11 +181,11 @@ export async function POST(req: Request) {
         category,
         quantity: item.quantity,
         quantityUnit: item.quantityUnit,
-        caloriesKcal100g: item.nutritionPer100g?.caloriesKcal ?? null,
-        proteinG100g: item.nutritionPer100g?.proteinG ?? null,
-        carbsG100g: item.nutritionPer100g?.carbsG ?? null,
-        fatG100g: item.nutritionPer100g?.fatG ?? null,
-        sugarG100g: item.nutritionPer100g?.sugarG ?? null,
+        caloriesKcal100g: nutritionPer100g.caloriesKcal,
+        proteinG100g: nutritionPer100g.proteinG,
+        carbsG100g: nutritionPer100g.carbsG,
+        fatG100g: nutritionPer100g.fatG,
+        sugarG100g: nutritionPer100g.sugarG,
       });
       if (id) {
         await ensurePantryItemImage({ id }).catch(() => null);

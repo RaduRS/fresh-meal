@@ -53,6 +53,104 @@ function canonicalizeName(name: string) {
     .trim();
 }
 
+export async function estimateNutritionPer100gFromText(input: {
+  name: string;
+  brand?: string | null;
+}) {
+  const apiKey = getEnv("GEMINI_API_KEY");
+  const model = getEnv("GEMINI_MODEL") ?? "gemini-2.5-flash";
+  if (!apiKey) {
+    throw new Error("Missing GEMINI_API_KEY");
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const name = input.name.trim();
+  const brand = (input.brand ?? "").trim();
+  const prompt = `You are estimating nutrition per 100g for a food product.
+
+Return ONLY valid JSON with this exact shape:
+{"caloriesKcal":389,"proteinG":7.0,"carbsG":80.0,"fatG":1.0,"sugarG":0.5}
+
+Rules:
+- Values must be numbers (never null)
+- Units: kcal for calories; grams for macros; all per 100g
+- Use a best-effort typical estimate if exact label values are unknown
+- Keep values realistic: protein/carbs/fat/sugar between 0 and 100; calories between 0 and 900
+
+Food:
+Name: ${JSON.stringify(name)}
+Brand: ${JSON.stringify(brand || null)}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0 },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Gemini error (${res.status}): ${body}`);
+  }
+
+  const data = (await res.json()) as GeminiGenerateContentResponse;
+  const text = data.candidates?.[0]?.content?.parts?.find(
+    (p) => typeof p.text === "string"
+  )?.text;
+  if (!text) {
+    throw new Error("Gemini returned no text");
+  }
+
+  const jsonText = extractJsonObject(text);
+  if (!jsonText) {
+    throw new Error("Gemini returned non-JSON output");
+  }
+
+  const parsed = JSON.parse(jsonText) as unknown;
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Gemini returned invalid JSON");
+  }
+  const obj = parsed as Record<string, unknown>;
+
+  const caloriesKcal = Number(obj.caloriesKcal);
+  const proteinG = Number(obj.proteinG);
+  const carbsG = Number(obj.carbsG);
+  const fatG = Number(obj.fatG);
+  const sugarG = Number(obj.sugarG);
+
+  if (
+    !Number.isFinite(caloriesKcal) ||
+    !Number.isFinite(proteinG) ||
+    !Number.isFinite(carbsG) ||
+    !Number.isFinite(fatG) ||
+    !Number.isFinite(sugarG)
+  ) {
+    throw new Error("Gemini returned non-numeric nutrition values");
+  }
+
+  if (
+    caloriesKcal < 0 ||
+    caloriesKcal > 900 ||
+    proteinG < 0 ||
+    proteinG > 100 ||
+    carbsG < 0 ||
+    carbsG > 100 ||
+    fatG < 0 ||
+    fatG > 100 ||
+    sugarG < 0 ||
+    sugarG > 100
+  ) {
+    throw new Error("Gemini returned out-of-range nutrition values");
+  }
+
+  return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
+}
+
 export async function detectPantryItemsFromImage(input: {
   base64: string;
   mimeType: string;
@@ -80,7 +178,7 @@ Rules:
 - Use quantityUnit="count" only for naturally-counted items (e.g., eggs, bananas, individual fruits/veg) or if the packaging clearly specifies a count (e.g., "12 eggs")
 - If you cannot read weight/volume for a packaged dry good or drink, still choose the correct unit ("g" for dry goods like rice/pasta/cereal, "ml" for liquids) and estimate a typical size (rice often 1000g; pasta often 500g; cereal often 500g; drinks often 330ml/500ml/1000ml)
 - If the item is not in original packaging (e.g., dry goods in a jar/tupperware/bowl), estimate the amount the user has using visual volume/level and common sense; prefer "g" for dry goods and "ml" for liquids. Example: a medium jar half-full of rice might be ~300g
-- nutritionPer100g: include if either (a) nutrition label is readable, or (b) the food is common and you can provide a reasonable best-effort estimate. Use grams for macros and kcal for calories. If you cannot provide a reasonable estimate, set it to null
+- nutritionPer100g: ALWAYS include with ALL fields present as numbers (never null). Use grams for macros and kcal for calories. If you cannot read a label, provide a best-effort typical estimate for that food
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
 - do not include any extra keys or text`;

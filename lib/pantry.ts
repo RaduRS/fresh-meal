@@ -37,7 +37,6 @@ export type PantryItem = {
   category: PantryCategory;
   quantity: number;
   quantity_unit: "count" | "g" | "ml";
-  serving_size: string | null;
   calories_kcal_100g: number | null;
   protein_g_100g: number | null;
   carbs_g_100g: number | null;
@@ -56,7 +55,7 @@ export async function listPantryItems() {
   const { data, error } = await supabase
     .from("pantry_items")
     .select(
-      "id,name,category,quantity,quantity_unit,serving_size,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
+      "id,name,category,quantity,quantity_unit,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
     )
     .is("deleted_at", null)
     .order("added_date", { ascending: false });
@@ -70,7 +69,7 @@ export async function getPantryItemById(id: string) {
   const { data, error } = await supabase
     .from("pantry_items")
     .select(
-      "id,name,category,quantity,quantity_unit,serving_size,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
+      "id,name,category,quantity,quantity_unit,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
     )
     .eq("id", id)
     .is("deleted_at", null)
@@ -85,12 +84,11 @@ export async function insertPantryItem(input: {
   category: PantryCategory;
   quantity: number;
   quantityUnit?: PantryItem["quantity_unit"] | null;
-  servingSize?: string | null;
-  caloriesKcal100g?: number | null;
-  proteinG100g?: number | null;
-  carbsG100g?: number | null;
-  fatG100g?: number | null;
-  sugarG100g?: number | null;
+  caloriesKcal100g: number;
+  proteinG100g: number;
+  carbsG100g: number;
+  fatG100g: number;
+  sugarG100g: number;
   barcode?: string | null;
   imageUrl?: string | null;
 }) {
@@ -102,12 +100,11 @@ export async function insertPantryItem(input: {
       category: input.category,
       quantity: input.quantity,
       quantity_unit: input.quantityUnit ?? "count",
-      serving_size: input.servingSize ?? null,
-      calories_kcal_100g: input.caloriesKcal100g ?? null,
-      protein_g_100g: input.proteinG100g ?? null,
-      carbs_g_100g: input.carbsG100g ?? null,
-      fat_g_100g: input.fatG100g ?? null,
-      sugar_g_100g: input.sugarG100g ?? null,
+      calories_kcal_100g: input.caloriesKcal100g,
+      protein_g_100g: input.proteinG100g,
+      carbs_g_100g: input.carbsG100g,
+      fat_g_100g: input.fatG100g,
+      sugar_g_100g: input.sugarG100g,
       barcode: input.barcode ?? null,
       image_url: input.imageUrl ?? null,
     })
@@ -124,12 +121,11 @@ export async function updatePantryItem(input: {
   category: PantryCategory;
   quantity: number;
   quantityUnit?: PantryItem["quantity_unit"] | null;
-  servingSize?: string | null;
-  caloriesKcal100g?: number | null;
-  proteinG100g?: number | null;
-  carbsG100g?: number | null;
-  fatG100g?: number | null;
-  sugarG100g?: number | null;
+  caloriesKcal100g: number;
+  proteinG100g: number;
+  carbsG100g: number;
+  fatG100g: number;
+  sugarG100g: number;
 }) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase
@@ -139,12 +135,11 @@ export async function updatePantryItem(input: {
       category: input.category,
       quantity: input.quantity,
       quantity_unit: input.quantityUnit ?? "count",
-      serving_size: input.servingSize ?? null,
-      calories_kcal_100g: input.caloriesKcal100g ?? null,
-      protein_g_100g: input.proteinG100g ?? null,
-      carbs_g_100g: input.carbsG100g ?? null,
-      fat_g_100g: input.fatG100g ?? null,
-      sugar_g_100g: input.sugarG100g ?? null,
+      calories_kcal_100g: input.caloriesKcal100g,
+      protein_g_100g: input.proteinG100g,
+      carbs_g_100g: input.carbsG100g,
+      fat_g_100g: input.fatG100g,
+      sugar_g_100g: input.sugarG100g,
     })
     .eq("id", input.id)
     .is("deleted_at", null);
