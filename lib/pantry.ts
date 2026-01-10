@@ -65,6 +65,21 @@ export async function listPantryItems() {
   return (data ?? []) as PantryItem[];
 }
 
+export async function getPantryItemById(id: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("pantry_items")
+    .select(
+      "id,name,category,quantity,quantity_unit,serving_size,calories_kcal_100g,protein_g_100g,carbs_g_100g,fat_g_100g,sugar_g_100g,barcode,image_url,added_date,deleted_at,created_at,updated_at"
+    )
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) throw error;
+  return (data ?? null) as PantryItem | null;
+}
+
 export async function insertPantryItem(input: {
   name: string;
   category: PantryCategory;
@@ -101,6 +116,40 @@ export async function insertPantryItem(input: {
 
   if (error) throw error;
   return String((data as { id?: unknown } | null)?.id ?? "");
+}
+
+export async function updatePantryItem(input: {
+  id: string;
+  name: string;
+  category: PantryCategory;
+  quantity: number;
+  quantityUnit?: PantryItem["quantity_unit"] | null;
+  servingSize?: string | null;
+  caloriesKcal100g?: number | null;
+  proteinG100g?: number | null;
+  carbsG100g?: number | null;
+  fatG100g?: number | null;
+  sugarG100g?: number | null;
+}) {
+  const supabase = createSupabaseAdminClient();
+  const { error } = await supabase
+    .from("pantry_items")
+    .update({
+      name: input.name,
+      category: input.category,
+      quantity: input.quantity,
+      quantity_unit: input.quantityUnit ?? "count",
+      serving_size: input.servingSize ?? null,
+      calories_kcal_100g: input.caloriesKcal100g ?? null,
+      protein_g_100g: input.proteinG100g ?? null,
+      carbs_g_100g: input.carbsG100g ?? null,
+      fat_g_100g: input.fatG100g ?? null,
+      sugar_g_100g: input.sugarG100g ?? null,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) throw error;
 }
 
 export async function softDeletePantryItem(id: string) {

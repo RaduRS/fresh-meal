@@ -4,12 +4,24 @@ import { AddItemBottomBar } from "@/components/layout/add-item-bottom-bar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { getPantryItemById } from "@/lib/pantry";
 
-export default function ManualAddItemPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ManualAddItemPage(props: {
+  searchParams?: Promise<{ id?: string }>;
+}) {
+  const searchParams = await Promise.resolve(props.searchParams);
+  const id = String(searchParams?.id ?? "").trim();
+  const item = id ? await getPantryItemById(id) : null;
+  const mode = item ? ("edit" as const) : ("add" as const);
+
   return (
     <div className="mx-auto w-full max-w-xl px-4 pb-32 pt-6">
       <div className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">Add manually</h1>
+        <h1 className="text-xl font-semibold tracking-tight">
+          {mode === "edit" ? "Edit item" : "Add manually"}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Category will be chosen automatically.
         </p>
@@ -20,6 +32,8 @@ export default function ManualAddItemPage() {
         className="rounded-xl border bg-card p-4"
       >
         <div className="grid grid-cols-1 gap-4">
+          {item ? <input type="hidden" name="id" value={item.id} /> : null}
+
           <div className="grid gap-2">
             <Label htmlFor="name">Item name</Label>
             <Input
@@ -28,6 +42,7 @@ export default function ManualAddItemPage() {
               placeholder="e.g., Honey"
               autoComplete="off"
               required
+              defaultValue={item?.name ?? ""}
             />
           </div>
 
@@ -41,7 +56,7 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 min={0}
                 step="0.01"
-                defaultValue={1}
+                defaultValue={item?.quantity ?? 1}
               />
             </div>
             <div className="grid gap-2">
@@ -49,7 +64,7 @@ export default function ManualAddItemPage() {
               <Select
                 id="quantityUnit"
                 name="quantityUnit"
-                defaultValue="count"
+                defaultValue={item?.quantity_unit ?? "count"}
               >
                 <option value="count">Count</option>
                 <option value="g">Grams</option>
@@ -65,6 +80,7 @@ export default function ManualAddItemPage() {
               name="servingSize"
               placeholder="e.g., 200g or 850ml"
               autoComplete="off"
+              defaultValue={item?.serving_size ?? ""}
             />
           </div>
 
@@ -81,6 +97,7 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 step="0.1"
                 min={0}
+                defaultValue={item?.calories_kcal_100g ?? ""}
               />
             </div>
             <div className="grid gap-2">
@@ -92,6 +109,7 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 step="0.1"
                 min={0}
+                defaultValue={item?.protein_g_100g ?? ""}
               />
             </div>
             <div className="grid gap-2">
@@ -103,6 +121,7 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 step="0.1"
                 min={0}
+                defaultValue={item?.carbs_g_100g ?? ""}
               />
             </div>
             <div className="grid gap-2">
@@ -114,6 +133,7 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 step="0.1"
                 min={0}
+                defaultValue={item?.fat_g_100g ?? ""}
               />
             </div>
             <div className="grid gap-2">
@@ -125,11 +145,12 @@ export default function ManualAddItemPage() {
                 inputMode="decimal"
                 step="0.1"
                 min={0}
+                defaultValue={item?.sugar_g_100g ?? ""}
               />
             </div>
           </div>
 
-          <ManualAddSubmitButton />
+          <ManualAddSubmitButton mode={mode} />
         </div>
       </form>
       <AddItemBottomBar active="manual" />

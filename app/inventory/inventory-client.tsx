@@ -133,6 +133,7 @@ export function InventoryClient(props: {
   items: PantryItem[];
   deleteAction: (formData: FormData) => Promise<void>;
 }) {
+  const actionRevealPx = 192;
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -142,10 +143,12 @@ export function InventoryClient(props: {
   } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [drag, setDrag] = useState<{
     id: string;
     startX: number;
     dx: number;
+    startOffset: number;
   } | null>(null);
 
   const categories = useMemo(() => {
@@ -189,6 +192,7 @@ export function InventoryClient(props: {
       setPendingDelete(null);
     }
 
+    setOpenId(null);
     setHiddenIds((prev) =>
       prev.includes(item.id) ? prev : [...prev, item.id]
     );
@@ -206,6 +210,10 @@ export function InventoryClient(props: {
     clearTimer();
     setHiddenIds((prev) => prev.filter((id) => id !== current.id));
     setPendingDelete(null);
+  }
+
+  function clamp(n: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, n));
   }
 
   return (
@@ -241,6 +249,13 @@ export function InventoryClient(props: {
               item.serving_size,
               item.quantity_unit
             );
+            const isOpen = openId === item.id;
+            const currentTranslateX =
+              drag?.id === item.id
+                ? clamp(drag.startOffset + drag.dx, -actionRevealPx, 0)
+                : isOpen
+                ? -actionRevealPx
+                : 0;
             const qtyRounded = Number.isFinite(item.quantity)
               ? Math.round(item.quantity * 100) / 100
               : 0;
@@ -261,28 +276,42 @@ export function InventoryClient(props: {
             return (
               <div
                 key={item.id}
-                className="relative overflow-hidden rounded-xl bg-red-600"
+                className="relative overflow-hidden rounded-xl"
               >
-                <button
-                  type="button"
-                  className="absolute inset-0 z-0 flex w-full items-center justify-end px-5 text-sm font-medium text-white"
-                  onClick={() => scheduleDelete(item)}
-                >
-                  Remove
-                </button>
+                <div className="absolute inset-y-0 right-0 z-0 flex">
+                  <Link
+                    href={`/add-item/manual?id=${encodeURIComponent(item.id)}`}
+                    className="flex h-full w-24 items-center justify-center bg-orange-500 text-sm font-medium text-white"
+                    onClick={() => setOpenId(null)}
+                  >
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    className="h-full w-24 bg-red-600 text-sm font-medium text-white"
+                    onClick={() => scheduleDelete(item)}
+                  >
+                    Remove
+                  </button>
+                </div>
 
                 <div
                   className="relative z-10 flex touch-pan-y items-start justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm"
                   style={{
-                    transform:
-                      drag?.id === item.id
-                        ? `translateX(${Math.max(-96, Math.min(0, drag.dx))}px)`
-                        : undefined,
+                    transform: `translateX(${currentTranslateX}px)`,
                     transition:
                       drag?.id === item.id ? undefined : "transform 120ms ease",
                   }}
                   onPointerDown={(e) => {
-                    setDrag({ id: item.id, startX: e.clientX, dx: 0 });
+                    setOpenId((prev) =>
+                      prev && prev !== item.id ? null : prev
+                    );
+                    setDrag({
+                      id: item.id,
+                      startX: e.clientX,
+                      dx: 0,
+                      startOffset: isOpen ? -actionRevealPx : 0,
+                    });
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
                   onPointerMove={(e) => {
@@ -294,7 +323,14 @@ export function InventoryClient(props: {
                   onPointerUp={() => {
                     setDrag((prev) => {
                       if (!prev || prev.id !== item.id) return prev;
-                      if (prev.dx < -80) scheduleDelete(item);
+                      const finalTranslateX = clamp(
+                        prev.startOffset + prev.dx,
+                        -actionRevealPx,
+                        0
+                      );
+                      setOpenId(
+                        finalTranslateX < -actionRevealPx / 2 ? item.id : null
+                      );
                       return null;
                     });
                   }}

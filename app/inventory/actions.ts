@@ -10,6 +10,7 @@ import {
   deletePantryItemImage,
   ensurePantryItemImage,
 } from "@/lib/pantry-images";
+import { updatePantryItem } from "@/lib/pantry";
 
 function parseQuantity(value: string): number {
   const n = Number(value);
@@ -31,6 +32,7 @@ function parseOptionalNumber(value: FormDataEntryValue | null) {
 }
 
 export async function addPantryItemAction(formData: FormData) {
+  const id = String(formData.get("id") ?? "").trim();
   const rawName = String(formData.get("name") ?? "").trim();
   const quantity = parseQuantity(String(formData.get("quantity") ?? "1"));
   const quantityUnit = parseUnit(
@@ -52,20 +54,36 @@ export async function addPantryItemAction(formData: FormData) {
 
   const category = await suggestPantryCategory(name);
 
-  const id = await insertPantryItem({
-    name,
-    category,
-    quantity,
-    quantityUnit,
-    servingSize,
-    caloriesKcal100g,
-    proteinG100g,
-    carbsG100g,
-    fatG100g,
-    sugarG100g,
-  });
   if (id) {
-    await ensurePantryItemImage({ id }).catch(() => null);
+    await updatePantryItem({
+      id,
+      name,
+      category,
+      quantity,
+      quantityUnit,
+      servingSize,
+      caloriesKcal100g,
+      proteinG100g,
+      carbsG100g,
+      fatG100g,
+      sugarG100g,
+    });
+  } else {
+    const createdId = await insertPantryItem({
+      name,
+      category,
+      quantity,
+      quantityUnit,
+      servingSize,
+      caloriesKcal100g,
+      proteinG100g,
+      carbsG100g,
+      fatG100g,
+      sugarG100g,
+    });
+    if (createdId) {
+      await ensurePantryItemImage({ id: createdId }).catch(() => null);
+    }
   }
   revalidatePath("/inventory");
   redirect("/inventory");
