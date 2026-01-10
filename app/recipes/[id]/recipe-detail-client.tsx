@@ -15,6 +15,10 @@ type Recipe = {
   pantryCoverage: number;
   missingIngredients: string[];
   ingredientsUsed: string[];
+  ingredientsUsedDetailed?: Array<{
+    name: string;
+    imageUrl: string | null;
+  }>;
   steps: string[];
   imageUrl: string | null;
 };
@@ -96,11 +100,32 @@ export function RecipeDetailClient(props: { id: string }) {
 
       <div className="rounded-xl border bg-card p-4">
         <div className="text-sm font-medium">Ingredients you’ll use</div>
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-          {recipe.ingredientsUsed.map((i) => (
-            <li key={i}>{i}</li>
-          ))}
-        </ul>
+        {recipe.ingredientsUsedDetailed?.length ? (
+          <ul className="mt-3 grid grid-cols-1 gap-2">
+            {recipe.ingredientsUsedDetailed.map((i) => (
+              <li key={i.name} className="flex items-center gap-3">
+                {i.imageUrl ? (
+                  <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-muted">
+                    <Image
+                      src={i.imageUrl}
+                      alt={i.name}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                ) : null}
+                <div className="text-sm">{i.name}</div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {recipe.ingredientsUsed.map((i) => (
+              <li key={i}>{i}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-xl border bg-card p-4">

@@ -23,6 +23,46 @@ type RequestBody = {
   servings: number;
 };
 
+function canonicalize(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function pickPantryImageUrl(
+  ingredientName: string,
+  pantry: Array<{ name: string; image_url: string | null }>
+) {
+  const target = canonicalize(ingredientName);
+  if (!target) return null;
+
+  let best: { imageUrl: string; score: number } | null = null;
+
+  for (const p of pantry) {
+    if (!p.image_url) continue;
+    const key = canonicalize(p.name);
+    if (!key) continue;
+
+    let score = 0;
+    if (key === target) score = 100;
+    else if (key.includes(target))
+      score = 70 - Math.min(30, key.length - target.length);
+    else if (target.includes(key))
+      score = 60 - Math.min(30, target.length - key.length);
+    else continue;
+
+    if (!best || score > best.score) {
+      best = { imageUrl: p.image_url, score };
+      if (score >= 100) break;
+    }
+  }
+
+  return best?.imageUrl ?? null;
+}
+
 function readBody(data: unknown): RequestBody | null {
   if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
@@ -93,7 +133,11 @@ export async function POST(req: Request) {
           title: r.title,
           description: r.description,
         }).catch(() => null);
-        return { ...r, imageUrl };
+        const ingredientsUsedDetailed = r.ingredientsUsed.map((name) => ({
+          name,
+          imageUrl: pickPantryImageUrl(name, pantry),
+        }));
+        return { ...r, imageUrl, ingredientsUsedDetailed };
       })
     );
 

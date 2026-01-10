@@ -28,6 +28,10 @@ type Recipe = {
   pantryCoverage: number;
   missingIngredients: string[];
   ingredientsUsed: string[];
+  ingredientsUsedDetailed?: Array<{
+    name: string;
+    imageUrl: string | null;
+  }>;
   steps: string[];
   imageUrl: string | null;
 };
