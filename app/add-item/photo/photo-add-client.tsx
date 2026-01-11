@@ -201,50 +201,6 @@ function readItems(data: unknown): AnalyzeItem[] | null {
   return items;
 }
 
-async function compressPhoto(file: File) {
-  try {
-    const maxBytes = 1_200_000;
-    const bitmap = await createImageBitmap(file);
-    const largestDim = Math.max(bitmap.width, bitmap.height);
-    const maxDim =
-      file.size > 4_000_000 || largestDim > 2800
-        ? 1280
-        : file.size > 2_000_000 || largestDim > 2200
-        ? 1440
-        : 1600;
-    const shouldCompress = file.size > maxBytes || largestDim > maxDim;
-    if (!shouldCompress) return file;
-
-    const scale = Math.min(1, maxDim / largestDim);
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-    ctx.drawImage(bitmap, 0, 0, width, height);
-
-    const qualities = [0.9, 0.85, 0.8, 0.75];
-    let blob: Blob | null = null;
-    for (const q of qualities) {
-      blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob(resolve, "image/jpeg", q);
-      });
-      if (!blob) break;
-      if (blob.size <= maxBytes) break;
-    }
-
-    if (!blob) return file;
-    if (blob.size >= file.size) return file;
-    return new File([blob], "photo.jpg", { type: "image/jpeg" });
-  } catch {
-    return file;
-  }
-}
-
 export function PhotoAddClient() {
   const router = useRouter();
   const [analyzing, setAnalyzing] = useState(false);
@@ -287,13 +243,7 @@ export function PhotoAddClient() {
           setItems([]);
 
           const form = e.currentTarget;
-          const rawFd = new FormData(form);
-          const rawFile = rawFd.get("photo");
-          const fd = new FormData();
-          if (rawFile instanceof File) {
-            const compressed = await compressPhoto(rawFile);
-            fd.set("photo", compressed);
-          }
+          const fd = new FormData(form);
 
           try {
             const res = await fetch("/api/photo/analyze", {
@@ -302,20 +252,6 @@ export function PhotoAddClient() {
             });
             const data = (await res.json()) as unknown;
             if (!res.ok) {
-              if (res.status === 429) {
-                const retrySeconds =
-                  data && typeof data === "object" && "retrySeconds" in data
-                    ? Number((data as { retrySeconds?: unknown }).retrySeconds)
-                    : NaN;
-                if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
-                  setAnalyzeError(
-                    `Rate limit reached. Try again in ~${Math.ceil(
-                      retrySeconds
-                    )}s.`
-                  );
-                  return;
-                }
-              }
               setAnalyzeError(
                 readError(data) ?? "Could not analyze photo. Try again."
               );

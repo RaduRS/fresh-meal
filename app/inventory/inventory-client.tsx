@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-} from "react";
+import { useMemo, useRef, useState, type ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
@@ -96,10 +90,6 @@ export function InventoryClient(props: {
   deleteAction: (formData: FormData) => Promise<void>;
 }) {
   const actionRevealPx = 192;
-  const [lazyImageUrls, setLazyImageUrls] = useState<Record<string, string>>(
-    {}
-  );
-  const lazyImageInFlightRef = useRef(new Set<string>());
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -117,77 +107,16 @@ export function InventoryClient(props: {
     startOffset: number;
   } | null>(null);
 
-  const itemsWithImages = useMemo(() => {
-    if (Object.keys(lazyImageUrls).length === 0) return props.items;
-    return props.items.map((item) => {
-      if (item.image_url) return item;
-      const url = lazyImageUrls[item.id];
-      if (!url) return item;
-      return { ...item, image_url: url };
-    });
-  }, [lazyImageUrls, props.items]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const queue = itemsWithImages
-      .filter((i) => !i.image_url)
-      .map((i) => i.id)
-      .filter((id) => !lazyImageInFlightRef.current.has(id));
-    if (queue.length === 0) return;
-
-    const run = async () => {
-      const concurrency = 2;
-      let cursor = 0;
-
-      const worker = async () => {
-        while (true) {
-          const index = cursor;
-          cursor += 1;
-          if (index >= queue.length) return;
-          const id = queue[index];
-          lazyImageInFlightRef.current.add(id);
-          try {
-            const res = await fetch("/api/pantry/ensure-image", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id }),
-            });
-            const data = (await res.json().catch(() => null)) as unknown;
-            const imageUrl =
-              data && typeof data === "object" && "imageUrl" in data
-                ? (data as { imageUrl?: unknown }).imageUrl
-                : null;
-            if (cancelled) return;
-            if (typeof imageUrl === "string" && imageUrl) {
-              setLazyImageUrls((prev) =>
-                prev[id] ? prev : { ...prev, [id]: imageUrl }
-              );
-            }
-          } catch {}
-        }
-      };
-
-      await Promise.all(
-        new Array(Math.min(concurrency, queue.length)).fill(null).map(worker)
-      );
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemsWithImages]);
-
   const categories = useMemo(() => {
-    const set = new Set(itemsWithImages.map((i) => i.category).filter(Boolean));
+    const set = new Set(props.items.map((i) => i.category).filter(Boolean));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [itemsWithImages]);
+  }, [props.items]);
 
   const visibleItems = useMemo(() => {
-    if (hiddenIds.length === 0) return itemsWithImages;
+    if (hiddenIds.length === 0) return props.items;
     const hidden = new Set(hiddenIds);
-    return itemsWithImages.filter((i) => !hidden.has(i.id));
-  }, [hiddenIds, itemsWithImages]);
+    return props.items.filter((i) => !hidden.has(i.id));
+  }, [hiddenIds, props.items]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

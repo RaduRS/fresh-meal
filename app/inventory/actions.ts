@@ -6,7 +6,10 @@ import { redirect } from "next/navigation";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { insertPantryItem, softDeletePantryItem } from "@/lib/pantry";
-import { deletePantryItemImage } from "@/lib/pantry-images";
+import {
+  deletePantryItemImage,
+  ensurePantryItemImage,
+} from "@/lib/pantry-images";
 import { updatePantryItem } from "@/lib/pantry";
 
 function parseQuantity(value: string): number {
@@ -72,7 +75,7 @@ export async function addPantryItemAction(formData: FormData) {
       sugarG100g,
     });
   } else {
-    await insertPantryItem({
+    const createdId = await insertPantryItem({
       name,
       category,
       quantity,
@@ -83,6 +86,9 @@ export async function addPantryItemAction(formData: FormData) {
       fatG100g,
       sugarG100g,
     });
+    if (createdId) {
+      await ensurePantryItemImage({ id: createdId }).catch(() => null);
+    }
   }
   revalidatePath("/inventory");
   redirect("/inventory");

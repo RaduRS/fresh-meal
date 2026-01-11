@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
+import { ensurePantryItemImage } from "@/lib/pantry-images";
 
 type AddItemInput = {
   name: string;
@@ -154,29 +155,6 @@ function readItems(data: unknown): AddItemInput[] | null {
   return items.slice(0, 50);
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>
-) {
-  const out: R[] = new Array(items.length);
-  let i = 0;
-
-  const workers = new Array(Math.min(limit, items.length))
-    .fill(null)
-    .map(async () => {
-      while (true) {
-        const index = i;
-        i += 1;
-        if (index >= items.length) return;
-        out[index] = await fn(items[index]);
-      }
-    });
-
-  await Promise.all(workers);
-  return out;
-}
-
 export async function POST(req: Request) {
   try {
     const data = (await req.json()) as unknown;
@@ -185,14 +163,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No items to add." }, { status: 400 });
     }
 
-    const insertedIds = await mapWithConcurrency(items, 4, async (item) => {
+    let added = 0;
+    for (const item of items) {
       const nutritionPer100g = requireNutritionPer100g(item.nutritionPer100g);
-      if (!nutritionPer100g) return null;
+      if (!nutritionPer100g) {
+        return NextResponse.json(
+          { error: "Missing macros for one or more items." },
+          { status: 400 }
+        );
+      }
 
       const name = await normalizePantryItemName(item.name);
-      if (!name) return null;
+      if (!name) continue;
       const category = await suggestPantryCategory(name);
-
       const id = await insertPantryItem({
         name,
         category,
@@ -204,11 +187,11 @@ export async function POST(req: Request) {
         fatG100g: nutritionPer100g.fatG,
         sugarG100g: nutritionPer100g.sugarG,
       });
-
-      return id || null;
-    });
-
-    const added = insertedIds.filter(Boolean).length;
+      if (id) {
+        await ensurePantryItemImage({ id }).catch(() => null);
+      }
+      added += 1;
+    }
 
     revalidatePath("/inventory");
     return NextResponse.json({ ok: true, added });
