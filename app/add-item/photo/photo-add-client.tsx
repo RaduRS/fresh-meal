@@ -21,6 +21,8 @@ type UIItem = {
   sugarG100g: number | null;
   confidence: number;
   selected: boolean;
+  macroStatus: "idle" | "loading" | "ready" | "error";
+  macroRequestedName: string | null;
 };
 
 type AnalyzeItem = {
@@ -205,6 +207,8 @@ export function PhotoAddClient() {
   const router = useRouter();
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const macroRunRef = useRef(0);
+  const macroAbortRef = useRef<Map<string, AbortController>>(new Map());
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -218,6 +222,33 @@ export function PhotoAddClient() {
       if (photoPreview) URL.revokeObjectURL(photoPreview);
     };
   }, [photoPreview]);
+
+  useEffect(() => {
+    const queued = items
+      .filter((i) => i.macroStatus === "idle")
+      .map((i) => ({ id: i.id, name: i.name.trim() }))
+      .filter((i) => i.name.length > 0);
+    if (queued.length === 0) return;
+
+    setItems((prev) =>
+      prev.map((x) => {
+        const next = queued.find((q) => q.id === x.id);
+        if (!next) return x;
+        return {
+          ...x,
+          caloriesKcal100g: null,
+          proteinG100g: null,
+          carbsG100g: null,
+          fatG100g: null,
+          sugarG100g: null,
+          macroStatus: "loading",
+          macroRequestedName: next.name,
+        };
+      })
+    );
+
+    void runMacroRequests(queued);
+  }, [items]);
 
   const selectedCount = useMemo(
     () => items.filter((i) => i.selected).length,
@@ -241,6 +272,112 @@ export function PhotoAddClient() {
       }));
   }, [items]);
 
+  const selectedMissingMacros = useMemo(() => {
+    return items
+      .filter((i) => i.selected)
+      .some(
+        (i) =>
+          typeof i.caloriesKcal100g !== "number" ||
+          typeof i.proteinG100g !== "number" ||
+          typeof i.carbsG100g !== "number" ||
+          typeof i.fatG100g !== "number" ||
+          typeof i.sugarG100g !== "number"
+      );
+  }, [items]);
+
+  async function runMacroRequests(input: { id: string; name: string }[]) {
+    const runId = macroRunRef.current;
+    const concurrency = 6;
+    let idx = 0;
+
+    const workers = new Array(Math.min(concurrency, input.length))
+      .fill(null)
+      .map(async () => {
+        while (true) {
+          const i = idx;
+          idx += 1;
+          if (i >= input.length) return;
+          const item = input[i];
+
+          const controller = new AbortController();
+          macroAbortRef.current.set(item.id, controller);
+
+          try {
+            const res = await fetch("/api/nutrition/estimate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: item.name }),
+              signal: controller.signal,
+            });
+            const data = (await res.json()) as unknown;
+            if (!res.ok)
+              throw new Error(readError(data) ?? "Macro request failed.");
+            if (!data || typeof data !== "object")
+              throw new Error("Macro response invalid.");
+            const nutrition =
+              "nutritionPer100g" in data &&
+              (data as Record<string, unknown>).nutritionPer100g &&
+              typeof (data as Record<string, unknown>).nutritionPer100g ===
+                "object"
+                ? ((data as Record<string, unknown>).nutritionPer100g as Record<
+                    string,
+                    unknown
+                  >)
+                : null;
+            const caloriesKcal = nutrition
+              ? Number(nutrition.caloriesKcal)
+              : NaN;
+            const proteinG = nutrition ? Number(nutrition.proteinG) : NaN;
+            const carbsG = nutrition ? Number(nutrition.carbsG) : NaN;
+            const fatG = nutrition ? Number(nutrition.fatG) : NaN;
+            const sugarG = nutrition ? Number(nutrition.sugarG) : NaN;
+
+            if (
+              !Number.isFinite(caloriesKcal) ||
+              !Number.isFinite(proteinG) ||
+              !Number.isFinite(carbsG) ||
+              !Number.isFinite(fatG) ||
+              !Number.isFinite(sugarG)
+            ) {
+              throw new Error("Macro response missing values.");
+            }
+
+            if (macroRunRef.current !== runId) return;
+            setItems((prev) =>
+              prev.map((x) => {
+                if (x.id !== item.id) return x;
+                if (x.macroRequestedName !== item.name) return x;
+                return {
+                  ...x,
+                  caloriesKcal100g: caloriesKcal,
+                  proteinG100g: proteinG,
+                  carbsG100g: carbsG,
+                  fatG100g: fatG,
+                  sugarG100g: sugarG,
+                  macroStatus: "ready",
+                };
+              })
+            );
+          } catch (e) {
+            if (macroRunRef.current !== runId) return;
+            if (e instanceof DOMException && e.name === "AbortError") return;
+            setItems((prev) =>
+              prev.map((x) => {
+                if (x.id !== item.id) return x;
+                if (x.macroRequestedName !== item.name) return x;
+                return { ...x, macroStatus: "error" };
+              })
+            );
+          } finally {
+            const existing = macroAbortRef.current.get(item.id);
+            if (existing === controller) macroAbortRef.current.delete(item.id);
+          }
+        }
+      });
+
+    await Promise.all(workers);
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4">
       <form
@@ -254,6 +391,9 @@ export function PhotoAddClient() {
             return;
           }
           setAnalyzing(true);
+          macroRunRef.current += 1;
+          for (const c of macroAbortRef.current.values()) c.abort();
+          macroAbortRef.current.clear();
           const fd = new FormData();
           fd.set("photo", photoFile);
 
@@ -271,24 +411,28 @@ export function PhotoAddClient() {
             }
 
             const parsed = readItems(data) ?? [];
-            setItems(() =>
-              parsed.map((i) => ({
-                quantity: Number.isFinite(i.quantity)
-                  ? Math.max(0, Math.round(i.quantity * 100) / 100)
-                  : 1,
-                quantityUnit: i.quantityUnit ?? "count",
-                id: makeId(),
-                name: i.name,
-                caloriesKcal100g: i.nutritionPer100g?.caloriesKcal ?? null,
-                proteinG100g: i.nutritionPer100g?.proteinG ?? null,
-                carbsG100g: i.nutritionPer100g?.carbsG ?? null,
-                fatG100g: i.nutritionPer100g?.fatG ?? null,
-                sugarG100g: i.nutritionPer100g?.sugarG ?? null,
-                confidence: Number.isFinite(i.confidence)
-                  ? Math.max(0, Math.min(1, i.confidence))
-                  : 0.8,
-                selected: true,
-              }))
+            const initial = parsed.map((i) => ({
+              quantity: Number.isFinite(i.quantity)
+                ? Math.max(0, Math.round(i.quantity * 100) / 100)
+                : 1,
+              quantityUnit: i.quantityUnit ?? "count",
+              id: makeId(),
+              name: i.name,
+              caloriesKcal100g: i.nutritionPer100g?.caloriesKcal ?? null,
+              proteinG100g: i.nutritionPer100g?.proteinG ?? null,
+              carbsG100g: i.nutritionPer100g?.carbsG ?? null,
+              fatG100g: i.nutritionPer100g?.fatG ?? null,
+              sugarG100g: i.nutritionPer100g?.sugarG ?? null,
+              confidence: Number.isFinite(i.confidence)
+                ? Math.max(0, Math.min(1, i.confidence))
+                : 0.8,
+              selected: true,
+              macroStatus: "loading" as const,
+              macroRequestedName: i.name,
+            }));
+            setItems(() => initial);
+            void runMacroRequests(
+              initial.map((x) => ({ id: x.id, name: x.name }))
             );
           } catch {
             setAnalyzeError("Could not analyze photo. Try again.");
@@ -491,7 +635,19 @@ export function PhotoAddClient() {
                           const v = e.currentTarget.value;
                           setItems((prev) =>
                             prev.map((x) =>
-                              x.id === item.id ? { ...x, name: v } : x
+                              x.id === item.id
+                                ? {
+                                    ...x,
+                                    name: v,
+                                    caloriesKcal100g: null,
+                                    proteinG100g: null,
+                                    carbsG100g: null,
+                                    fatG100g: null,
+                                    sugarG100g: null,
+                                    macroStatus: "idle",
+                                    macroRequestedName: null,
+                                  }
+                                : x
                             )
                           );
                         }}
@@ -555,6 +711,15 @@ export function PhotoAddClient() {
                     <div className="rounded-lg border bg-card p-3">
                       <div className="text-xs font-medium text-muted-foreground">
                         Macros per 100g
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {item.macroStatus === "loading"
+                          ? "Estimating…"
+                          : item.macroStatus === "error"
+                          ? "Could not estimate. Enter manually."
+                          : item.macroStatus === "idle"
+                          ? "Waiting to estimate…"
+                          : "Estimated"}
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
                         <MacroIconInput
@@ -665,7 +830,7 @@ export function PhotoAddClient() {
             <Button
               type="submit"
               className="w-full"
-              disabled={selectedCount === 0 || adding}
+              disabled={selectedCount === 0 || adding || selectedMissingMacros}
             >
               {adding
                 ? "Adding…"

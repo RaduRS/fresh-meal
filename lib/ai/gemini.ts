@@ -1,3 +1,6 @@
+import { openAICompatibleChat } from "@/lib/ai/openai-compatible";
+import { getChatProviders } from "@/lib/ai/providers";
+
 type GeminiDetectedItem = {
   name: string;
   quantity: number;
@@ -14,16 +17,6 @@ type GeminiDetectedItem = {
 
 type GeminiDetectedItemsResponse = {
   items: GeminiDetectedItem[];
-};
-
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
 };
 
 function normalizeBaseUrl(raw: string) {
@@ -84,32 +77,10 @@ function canonicalizeName(name: string) {
     .trim();
 }
 
-function roundCaloriesKcal(value: number | null) {
-  if (typeof value !== "number") return null;
-  if (!Number.isFinite(value)) return null;
-  return Math.max(0, Math.round(value));
-}
-
-function roundMacroG(value: number | null) {
-  if (typeof value !== "number") return null;
-  if (!Number.isFinite(value)) return null;
-  return Math.max(0, Math.round(value * 10) / 10);
-}
-
 export async function estimateNutritionPer100gFromText(input: {
   name: string;
   brand?: string | null;
 }) {
-  const apiKey = getEnv("GEMINI_API_KEY");
-  const model = getEnv("GEMINI_MODEL") ?? "gemini-2.5-flash";
-  if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY");
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
   const name = input.name.trim();
   const brand = (input.brand ?? "").trim();
   const prompt = `You are estimating nutrition per 100g for a food product.
@@ -127,71 +98,77 @@ Food:
 Name: ${JSON.stringify(name)}
 Brand: ${JSON.stringify(brand || null)}`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0 },
-    }),
+  const providers = getChatProviders().sort((a, b) => {
+    if (a.provider === b.provider) return 0;
+    if (a.provider === "deepseek") return -1;
+    return 1;
   });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Gemini error (${res.status}): ${body}`);
+  const system: { role: "system"; content: string } = {
+    role: "system",
+    content:
+      "Return strictly valid JSON. Do not include markdown, backticks, or extra text.",
+  };
+  const user: { role: "user"; content: string } = {
+    role: "user",
+    content: prompt,
+  };
+
+  let lastError: unknown = null;
+  for (const p of providers) {
+    try {
+      const out = await openAICompatibleChat({
+        apiKey: p.apiKey,
+        baseUrl: p.baseUrl,
+        model: p.model,
+        messages: [system, user],
+        temperature: 0,
+      });
+      const jsonText = extractJsonObject(out);
+      if (!jsonText) throw new Error("LLM returned non-JSON output");
+      const parsed = JSON.parse(jsonText) as unknown;
+      if (!parsed || typeof parsed !== "object")
+        throw new Error("LLM returned invalid JSON");
+      const obj = parsed as Record<string, unknown>;
+      const caloriesKcal = Number(obj.caloriesKcal);
+      const proteinG = Number(obj.proteinG);
+      const carbsG = Number(obj.carbsG);
+      const fatG = Number(obj.fatG);
+      const sugarG = Number(obj.sugarG);
+
+      if (
+        !Number.isFinite(caloriesKcal) ||
+        !Number.isFinite(proteinG) ||
+        !Number.isFinite(carbsG) ||
+        !Number.isFinite(fatG) ||
+        !Number.isFinite(sugarG)
+      ) {
+        throw new Error("LLM returned non-numeric nutrition values");
+      }
+
+      if (
+        caloriesKcal < 0 ||
+        caloriesKcal > 900 ||
+        proteinG < 0 ||
+        proteinG > 100 ||
+        carbsG < 0 ||
+        carbsG > 100 ||
+        fatG < 0 ||
+        fatG > 100 ||
+        sugarG < 0 ||
+        sugarG > 100
+      ) {
+        throw new Error("LLM returned out-of-range nutrition values");
+      }
+
+      return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
+    } catch (e) {
+      lastError = e;
+    }
   }
 
-  const data = (await res.json()) as GeminiGenerateContentResponse;
-  const text = data.candidates?.[0]?.content?.parts?.find(
-    (p) => typeof p.text === "string"
-  )?.text;
-  if (!text) {
-    throw new Error("Gemini returned no text");
-  }
-
-  const jsonText = extractJsonObject(text);
-  if (!jsonText) {
-    throw new Error("Gemini returned non-JSON output");
-  }
-
-  const parsed = JSON.parse(jsonText) as unknown;
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Gemini returned invalid JSON");
-  }
-  const obj = parsed as Record<string, unknown>;
-
-  const caloriesKcal = Number(obj.caloriesKcal);
-  const proteinG = Number(obj.proteinG);
-  const carbsG = Number(obj.carbsG);
-  const fatG = Number(obj.fatG);
-  const sugarG = Number(obj.sugarG);
-
-  if (
-    !Number.isFinite(caloriesKcal) ||
-    !Number.isFinite(proteinG) ||
-    !Number.isFinite(carbsG) ||
-    !Number.isFinite(fatG) ||
-    !Number.isFinite(sugarG)
-  ) {
-    throw new Error("Gemini returned non-numeric nutrition values");
-  }
-
-  if (
-    caloriesKcal < 0 ||
-    caloriesKcal > 900 ||
-    proteinG < 0 ||
-    proteinG > 100 ||
-    carbsG < 0 ||
-    carbsG > 100 ||
-    fatG < 0 ||
-    fatG > 100 ||
-    sugarG < 0 ||
-    sugarG > 100
-  ) {
-    throw new Error("Gemini returned out-of-range nutrition values");
-  }
-
-  return { caloriesKcal, proteinG, carbsG, fatG, sugarG };
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("No AI provider configured");
 }
 
 export async function detectPantryItemsFromImage(input: {
@@ -212,7 +189,7 @@ export async function detectPantryItemsFromImage(input: {
   if (!apiKey) throw new Error("Missing KIMI_API_KEY");
 
   const prompt = `Analyze this photo and identify food items visible. Return ONLY valid JSON with this exact shape:
-{"items":[{"name":"Tomatoes","quantity":2,"quantityUnit":"count","nutritionPer100g":{"caloriesKcal":18,"proteinG":0.9,"carbsG":3.9,"fatG":0.2,"sugarG":2.6},"confidence":0.92}]}
+{"items":[{"name":"Tomatoes","quantity":2,"quantityUnit":"count","confidence":0.92}]}
 
 Rules:
 - items: include only food items you are confident about
@@ -224,7 +201,6 @@ Rules:
 - Use quantityUnit="count" only for naturally-counted items (e.g., eggs, bananas, individual fruits/veg) or if the packaging clearly specifies a count (e.g., "12 eggs")
 - If you cannot read weight/volume for a packaged dry good or drink, still choose the correct unit ("g" for dry goods like rice/pasta/cereal, "ml" for liquids) and estimate a typical size (rice often 1000g; pasta often 500g; cereal often 500g; drinks often 330ml/500ml/1000ml)
 - If the item is not in original packaging (e.g., dry goods in a jar/tupperware/bowl), estimate the amount the user has using visual volume/level and common sense; prefer "g" for dry goods and "ml" for liquids. Example: a medium jar half-full of rice might be ~300g
-- nutritionPer100g: ALWAYS include with ALL fields present as numbers (never null). Use grams for macros and kcal for calories. If you cannot read a label, provide a best-effort typical estimate for that food
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
 - limit to at most 30 items
@@ -280,24 +256,6 @@ Rules:
                       quantityUnit: {
                         type: "string",
                         enum: ["count", "g", "ml"],
-                      },
-                      nutritionPer100g: {
-                        type: "object",
-                        additionalProperties: false,
-                        required: [
-                          "caloriesKcal",
-                          "proteinG",
-                          "carbsG",
-                          "fatG",
-                          "sugarG",
-                        ],
-                        properties: {
-                          caloriesKcal: { type: "number" },
-                          proteinG: { type: "number" },
-                          carbsG: { type: "number" },
-                          fatG: { type: "number" },
-                          sugarG: { type: "number" },
-                        },
                       },
                       confidence: { type: "number" },
                     },
@@ -368,13 +326,6 @@ Rules:
       name: string;
       quantity: number;
       quantityUnit: "count" | "g" | "ml";
-      nutritionPer100g: {
-        caloriesKcal: number | null;
-        proteinG: number | null;
-        carbsG: number | null;
-        fatG: number | null;
-        sugarG: number | null;
-      } | null;
       confidence: number;
     }
   >();
@@ -396,39 +347,6 @@ Rules:
         ? item.quantityUnit
         : "count";
     const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
-    const nutritionRaw =
-      item.nutritionPer100g && typeof item.nutritionPer100g === "object"
-        ? (item.nutritionPer100g as Record<string, unknown>)
-        : null;
-    const nutritionPer100g = nutritionRaw
-      ? {
-          caloriesKcal: roundCaloriesKcal(
-            Number.isFinite(Number(nutritionRaw.caloriesKcal))
-              ? Number(nutritionRaw.caloriesKcal)
-              : null
-          ),
-          proteinG: roundMacroG(
-            Number.isFinite(Number(nutritionRaw.proteinG))
-              ? Number(nutritionRaw.proteinG)
-              : null
-          ),
-          carbsG: roundMacroG(
-            Number.isFinite(Number(nutritionRaw.carbsG))
-              ? Number(nutritionRaw.carbsG)
-              : null
-          ),
-          fatG: roundMacroG(
-            Number.isFinite(Number(nutritionRaw.fatG))
-              ? Number(nutritionRaw.fatG)
-              : null
-          ),
-          sugarG: roundMacroG(
-            Number.isFinite(Number(nutritionRaw.sugarG))
-              ? Number(nutritionRaw.sugarG)
-              : null
-          ),
-        }
-      : null;
 
     const key = canonicalizeName(name);
     if (!key) continue;
@@ -439,22 +357,10 @@ Rules:
         name,
         quantity,
         quantityUnit: unit,
-        nutritionPer100g,
         confidence,
       });
       continue;
     }
-
-    const mergedNutrition =
-      nutritionPer100g &&
-      (!existing.nutritionPer100g ||
-        Object.values(nutritionPer100g).filter((v) => typeof v === "number")
-          .length >
-          Object.values(existing.nutritionPer100g).filter(
-            (v) => typeof v === "number"
-          ).length)
-        ? nutritionPer100g
-        : existing.nutritionPer100g;
 
     const mergedUnit =
       existing.quantityUnit === "count" && unit !== "count"
@@ -469,7 +375,6 @@ Rules:
       name: existing.name.length >= name.length ? existing.name : name,
       quantity: Math.max(existing.quantity, quantity),
       quantityUnit: mergedUnit,
-      nutritionPer100g: mergedNutrition,
       confidence: Math.max(existing.confidence, confidence),
     });
   }
