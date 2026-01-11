@@ -1,4 +1,11 @@
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+type MultiPartContent =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string | MultiPartContent[];
+};
 
 function normalizeBaseUrl(raw: string) {
   const trimmed = raw.trim().replace(/[`"' ]+/g, "");
@@ -48,4 +55,3 @@ export async function openAICompatibleChat(params: {
   if (!content) throw new Error("LLM response missing content");
   return content;
 }
-

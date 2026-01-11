@@ -26,6 +26,37 @@ type GeminiGenerateContentResponse = {
   }>;
 };
 
+function normalizeBaseUrl(raw: string) {
+  const trimmed = raw.trim().replace(/[`"' ]+/g, "");
+  return trimmed.replace(/\/+$/, "");
+}
+
+function toV1BaseUrl(baseUrl: string) {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (normalized.endsWith("/v1")) return normalized;
+  return `${normalized}/v1`;
+}
+
+function repairJsonObject(text: string) {
+  const extracted = extractJsonObject(text);
+  if (!extracted) return null;
+  const cleaned = extracted
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .replace(/,\s*([}\]])/g, "$1");
+  try {
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch {}
+
+  const withMissingCommasFixed = cleaned.replace(/}\s*{/g, "},{");
+  try {
+    JSON.parse(withMissingCommasFixed);
+    return withMissingCommasFixed;
+  } catch {}
+
+  return cleaned;
+}
+
 function getEnv(name: string) {
   const value = process.env[name];
   if (!value) return null;
@@ -167,15 +198,18 @@ export async function detectPantryItemsFromImage(input: {
   base64: string;
   mimeType: string;
 }) {
-  const apiKey = getEnv("GEMINI_API_KEY");
-  const model = getEnv("GEMINI_MODEL") ?? "gemini-2.5-flash";
-  if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY");
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const apiKey = getEnv("KIMI_API_KEY");
+  const baseUrl =
+    getEnv("KIMI_BASE_URL") ??
+    getEnv("MOONSHOT_BASE_URL") ??
+    "https://api.moonshot.ai/v1";
+  const model =
+    getEnv("KIMI_VISION_MODEL") ??
+    getEnv("KIMI_MODEL") ??
+    "moonshot-v1-32k-vision-preview";
+  const maxTokensRaw = getEnv("KIMI_VISION_MAX_TOKENS");
+  const maxTokens = maxTokensRaw ? Number(maxTokensRaw) : 6000;
+  if (!apiKey) throw new Error("Missing KIMI_API_KEY");
 
   const prompt = `Analyze this photo and identify food items visible. Return ONLY valid JSON with this exact shape:
 {"items":[{"name":"Tomatoes","quantity":2,"quantityUnit":"count","nutritionPer100g":{"caloriesKcal":18,"proteinG":0.9,"carbsG":3.9,"fatG":0.2,"sugarG":2.6},"confidence":0.92}]}
@@ -193,45 +227,139 @@ Rules:
 - nutritionPer100g: ALWAYS include with ALL fields present as numbers (never null). Use grams for macros and kcal for calories. If you cannot read a label, provide a best-effort typical estimate for that food
 - confidence: number 0 to 1
 - do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
+- limit to at most 30 items
+- output must be compact JSON on a single line (no pretty printing)
 - do not include any extra keys or text`;
+
+  const url = `${toV1BaseUrl(baseUrl)}/chat/completions`;
+  const dataUrl = `data:${input.mimeType};base64,${input.base64}`;
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Return strictly valid JSON. Do not include markdown, backticks, extra text, or pretty formatting.",
+        },
         {
           role: "user",
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: input.mimeType, data: input.base64 } },
+          content: [
+            { type: "image_url", image_url: { url: dataUrl } },
+            { type: "text", text: prompt },
           ],
         },
       ],
-      generationConfig: { temperature: 0 },
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "set_detected_items",
+            description: "Return detected pantry items from the image.",
+            parameters: {
+              type: "object",
+              additionalProperties: false,
+              required: ["items"],
+              properties: {
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: [
+                      "name",
+                      "quantity",
+                      "quantityUnit",
+                      "confidence",
+                    ],
+                    properties: {
+                      name: { type: "string" },
+                      quantity: { type: "number" },
+                      quantityUnit: {
+                        type: "string",
+                        enum: ["count", "g", "ml"],
+                      },
+                      nutritionPer100g: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: [
+                          "caloriesKcal",
+                          "proteinG",
+                          "carbsG",
+                          "fatG",
+                          "sugarG",
+                        ],
+                        properties: {
+                          caloriesKcal: { type: "number" },
+                          proteinG: { type: "number" },
+                          carbsG: { type: "number" },
+                          fatG: { type: "number" },
+                          sugarG: { type: "number" },
+                        },
+                      },
+                      confidence: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+      tool_choice: {
+        type: "function",
+        function: { name: "set_detected_items" },
+      },
+      max_tokens: Number.isFinite(maxTokens) ? Math.max(500, maxTokens) : 6000,
+      temperature: 0,
     }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`Gemini error (${res.status}): ${body}`);
+    throw new Error(`Kimi vision error (${res.status}): ${body}`);
   }
 
-  const data = (await res.json()) as GeminiGenerateContentResponse;
-  const text = data.candidates?.[0]?.content?.parts?.find(
-    (p) => typeof p.text === "string"
-  )?.text;
+  const data = (await res.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+        tool_calls?: Array<{
+          function?: { arguments?: string };
+        }>;
+      };
+    }>;
+  };
+  const toolArgs =
+    data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+  const text =
+    typeof toolArgs === "string"
+      ? toolArgs
+      : data.choices?.[0]?.message?.content;
 
   if (!text) {
-    throw new Error("Gemini returned no text");
+    throw new Error("Kimi returned no text");
   }
 
-  const jsonText = extractJsonObject(text);
+  const jsonText = repairJsonObject(text);
   if (!jsonText) {
-    throw new Error("Gemini returned non-JSON output");
+    throw new Error("Kimi returned non-JSON output");
   }
 
-  const parsed = JSON.parse(jsonText) as GeminiDetectedItemsResponse;
+  let parsed: GeminiDetectedItemsResponse;
+  try {
+    parsed = JSON.parse(jsonText) as GeminiDetectedItemsResponse;
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Could not parse model JSON";
+    throw new Error(message);
+  }
   const items = Array.isArray(parsed.items) ? parsed.items : [];
 
   const deduped = new Map<
