@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 
 import { Button } from "@/components/ui/button";
+import { MacroSummary } from "@/components/ui/macro-summary";
 
 type Recipe = {
   id: string;
@@ -21,6 +22,13 @@ type Recipe = {
   }>;
   steps: string[];
   imageUrl: string | null;
+  macrosPerServing?: {
+    caloriesKcal: number | null;
+    proteinG: number | null;
+    carbsG: number | null;
+    fatG: number | null;
+    sugarG: number | null;
+  } | null;
 };
 
 function readLastResults(): Recipe[] {
@@ -85,6 +93,11 @@ export function RecipeDetailClient(props: { id: string }) {
           {recipe.timeMinutes} min • Serves {recipe.servings} •{" "}
           {recipe.pantryCoverage}% pantry
         </div>
+        {recipe.macrosPerServing ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            <MacroSummary macros={recipe.macrosPerServing} showSugar />
+          </div>
+        ) : null}
       </div>
 
       {recipe.missingIngredients.length ? (

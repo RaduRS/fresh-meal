@@ -15,6 +15,19 @@ type Diet =
   | "dairy-free"
   | "low-carb";
 
+export type RecipeMacros = {
+  caloriesKcal: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  sugarG: number | null;
+};
+
+export type RecipeIngredientAmount = {
+  name: string;
+  amountG: number;
+};
+
 export type AiRecipe = {
   id: string;
   title: string;
@@ -24,8 +37,10 @@ export type AiRecipe = {
   pantryCoverage: number;
   missingIngredients: string[];
   ingredientsUsed: string[];
+  ingredientAmountsG: RecipeIngredientAmount[];
   steps: string[];
   imageUrl: string | null;
+  macrosPerServing: RecipeMacros | null;
 };
 
 function extractJsonObject(text: string) {
@@ -49,6 +64,20 @@ function canonicalize(s: string) {
     .trim();
 }
 
+function uniqueStringsByCanonical(v: string[], max: number) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const s of v) {
+    const key = canonicalize(s);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function makeId(seed: string) {
   const slug = seed
     .toLowerCase()
@@ -68,6 +97,25 @@ function clampInt(n: unknown, min: number, max: number, fallback: number) {
   const v = Number(n);
   if (!Number.isFinite(v)) return fallback;
   return Math.max(min, Math.min(max, Math.floor(v)));
+}
+
+function readIngredientAmounts(v: unknown): RecipeIngredientAmount[] {
+  if (!Array.isArray(v)) return [];
+  const out: RecipeIngredientAmount[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    const name = cleanString(obj.name);
+    const amountGRaw = Number(obj.amountG);
+    const amountG =
+      Number.isFinite(amountGRaw) && amountGRaw > 0
+        ? Math.min(5000, Math.round(amountGRaw))
+        : 0;
+    if (!name || amountG <= 0) continue;
+    out.push({ name, amountG });
+    if (out.length >= 14) break;
+  }
+  return out;
 }
 
 function cleanString(v: unknown) {
@@ -146,16 +194,34 @@ function computeCoveragePercent(pantry: string[], used: string[]) {
 }
 
 export async function generateRecipesFromPantry(input: {
-  pantryItems: string[];
+  pantryItems: Array<{
+    name: string;
+    quantity: number;
+    quantityUnit: "count" | "g" | "ml";
+    nutritionPer100g: {
+      caloriesKcal: number;
+      proteinG: number;
+      carbsG: number;
+      fatG: number;
+      sugarG: number;
+    } | null;
+  }>;
   mealType: MealType;
   who: Who;
   servings: number;
   diet: Diet;
 }) {
   const pantry = input.pantryItems
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 200);
+    .map((p) => ({
+      name: p.name.trim(),
+      quantity: Number.isFinite(Number(p.quantity)) ? Number(p.quantity) : 1,
+      quantityUnit: p.quantityUnit,
+      nutritionPer100g: p.nutritionPer100g,
+    }))
+    .filter((p) => Boolean(p.name))
+    .slice(0, 120);
+
+  const pantryNames = pantry.map((p) => p.name);
 
   const prompt = `You are a friendly chef for a mobile pantry app.
 
@@ -165,8 +231,8 @@ User context:
 - Desired servings: ${input.servings}
 - Dietary preference: ${normalizeDietLabel(input.diet)}
 
-Pantry items (use ONLY these as ingredients if possible):
-${pantry.map((p) => `- ${p}`).join("\n")}
+Pantry items with available quantity + macros per 100g:
+${JSON.stringify(pantry)}
 
 Task:
 - Generate 3 recipes.
@@ -175,13 +241,17 @@ Task:
 - Avoid brand names in ingredient lists; use generic ingredient terms.
 - Prefer dinner-friendly options if meal type is dinner.
 - Keep steps short and actionable (mobile friendly).
+- Include ingredientAmountsG: for each ingredient in ingredientsUsed, estimate grams used in the whole recipe.
+- Use grams for everything, including liquids (convert to grams).
+- ingredientAmountsG.name must match an item in ingredientsUsed.
 
 Return ONLY valid JSON with this exact shape:
-{"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":90,"missingIngredients":["..."],"ingredientsUsed":["..."],"steps":["..."]}]}
+{"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":90,"missingIngredients":["..."],"ingredientsUsed":["..."],"ingredientAmountsG":[{"name":"...","amountG":123}],"steps":["..."]}]}
 
 Rules:
 - steps: 5 to 10 steps
 - ingredientsUsed: 4 to 14 items
+- ingredientAmountsG: 4 to 14 items
 - timeMinutes: integer 5-180
 - servings: integer 1-8
   - pantryCoverage: integer 0-100
@@ -213,13 +283,21 @@ Rules:
     const servings = clampInt(obj.servings, 1, 8, input.servings);
     const timeMinutes = clampInt(obj.timeMinutes, 5, 180, 25);
     const missingIngredients = cleanStringList(obj.missingIngredients, 2);
-    const ingredientsUsed = cleanStringList(obj.ingredientsUsed, 14);
+    const ingredientsUsed = uniqueStringsByCanonical(
+      cleanStringList(obj.ingredientsUsed, 30),
+      14
+    );
+    const ingredientAmountsG = readIngredientAmounts(obj.ingredientAmountsG)
+      .filter((a) =>
+        ingredientsUsed.some((i) => canonicalize(i) === canonicalize(a.name))
+      )
+      .slice(0, 14);
     const steps = cleanStringList(obj.steps, 12).slice(0, 10);
     const pantryCoverage = clampInt(
       obj.pantryCoverage,
       0,
       100,
-      computeCoveragePercent(pantry, ingredientsUsed)
+      computeCoveragePercent(pantryNames, ingredientsUsed)
     );
     if (steps.length < 4) continue;
 
@@ -233,8 +311,10 @@ Rules:
       pantryCoverage,
       missingIngredients,
       ingredientsUsed,
+      ingredientAmountsG,
       steps,
       imageUrl: null,
+      macrosPerServing: null,
     };
 
     if (missingIngredients.length === 0) {

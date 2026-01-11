@@ -6,6 +6,7 @@ import Image from "next/image";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { MacroSummary } from "@/components/ui/macro-summary";
 import { Select } from "@/components/ui/select";
 
 type MealType = "breakfast" | "lunch" | "dinner";
@@ -34,6 +35,13 @@ type Recipe = {
   }>;
   steps: string[];
   imageUrl: string | null;
+  macrosPerServing?: {
+    caloriesKcal: number | null;
+    proteinG: number | null;
+    carbsG: number | null;
+    fatG: number | null;
+    sugarG: number | null;
+  } | null;
 };
 
 function defaultMealType(now: Date): MealType {
@@ -315,6 +323,12 @@ export function RecipesClient() {
                     <span>{r.description}</span>
                     <span>•</span>
                     <span>{r.pantryCoverage}% pantry</span>
+                    {r.macrosPerServing ? (
+                      <>
+                        <span>•</span>
+                        <MacroSummary macros={r.macrosPerServing} showSugar />
+                      </>
+                    ) : null}
                     {r.missingIngredients.length ? (
                       <>
                         <span>•</span>

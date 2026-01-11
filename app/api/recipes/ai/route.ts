@@ -63,6 +63,95 @@ function pickPantryImageUrl(
   return best?.imageUrl ?? null;
 }
 
+function pickPantryMacroSource(
+  ingredientName: string,
+  pantry: Array<{
+    name: string;
+    calories_kcal_100g: number | null;
+    protein_g_100g: number | null;
+    carbs_g_100g: number | null;
+    fat_g_100g: number | null;
+    sugar_g_100g: number | null;
+  }>
+) {
+  const target = canonicalize(ingredientName);
+  if (!target) return null;
+
+  let best: { item: (typeof pantry)[number]; score: number } | null = null;
+  for (const p of pantry) {
+    const key = canonicalize(p.name);
+    if (!key) continue;
+    let score = 0;
+    if (key === target) score = 100;
+    else if (key.includes(target))
+      score = 70 - Math.min(30, key.length - target.length);
+    else if (target.includes(key))
+      score = 60 - Math.min(30, target.length - key.length);
+    else continue;
+
+    if (!best || score > best.score) {
+      best = { item: p, score };
+      if (score >= 100) break;
+    }
+  }
+  return best?.item ?? null;
+}
+
+function computeRecipeMacrosPerServing(input: {
+  servings: number;
+  ingredientAmountsG: Array<{ name: string; amountG: number }>;
+  pantry: Array<{
+    name: string;
+    calories_kcal_100g: number | null;
+    protein_g_100g: number | null;
+    carbs_g_100g: number | null;
+    fat_g_100g: number | null;
+    sugar_g_100g: number | null;
+  }>;
+}) {
+  let any = false;
+  let calories = 0;
+  let protein = 0;
+  let carbs = 0;
+  let fat = 0;
+  let sugar = 0;
+
+  for (const ing of input.ingredientAmountsG) {
+    const amountG = Number(ing.amountG);
+    if (!Number.isFinite(amountG) || amountG <= 0) continue;
+    const p = pickPantryMacroSource(ing.name, input.pantry);
+    if (!p) continue;
+    if (
+      typeof p.calories_kcal_100g !== "number" ||
+      typeof p.protein_g_100g !== "number" ||
+      typeof p.carbs_g_100g !== "number" ||
+      typeof p.fat_g_100g !== "number" ||
+      typeof p.sugar_g_100g !== "number"
+    ) {
+      continue;
+    }
+    const f = amountG / 100;
+    calories += p.calories_kcal_100g * f;
+    protein += p.protein_g_100g * f;
+    carbs += p.carbs_g_100g * f;
+    fat += p.fat_g_100g * f;
+    sugar += p.sugar_g_100g * f;
+    any = true;
+  }
+
+  if (!any) return null;
+
+  const servings = Math.max(1, Math.floor(Number(input.servings) || 1));
+  const per = (n: number) => Math.round((n / servings) * 10) / 10;
+  return {
+    caloriesKcal: Math.round(calories / servings),
+    proteinG: per(protein),
+    carbsG: per(carbs),
+    fatG: per(fat),
+    sugarG: per(sugar),
+  };
+}
+
 function readBody(data: unknown): RequestBody | null {
   if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
@@ -109,8 +198,31 @@ export async function POST(req: Request) {
   }
 
   const pantry = await listPantryItems();
-  const pantryItems = pantry.map((p) => p.name).filter(Boolean);
-  if (pantryItems.length === 0) {
+  const pantryForAi = pantry
+    .map((p) => ({
+      name: p.name,
+      quantity: p.quantity,
+      quantityUnit: p.quantity_unit,
+      nutritionPer100g:
+        typeof p.calories_kcal_100g === "number" &&
+        typeof p.protein_g_100g === "number" &&
+        typeof p.carbs_g_100g === "number" &&
+        typeof p.fat_g_100g === "number" &&
+        typeof p.sugar_g_100g === "number"
+          ? {
+              caloriesKcal: p.calories_kcal_100g,
+              proteinG: p.protein_g_100g,
+              carbsG: p.carbs_g_100g,
+              fatG: p.fat_g_100g,
+              sugarG: p.sugar_g_100g,
+            }
+          : null,
+    }))
+    .filter((p) => Boolean(p.name && p.name.trim()))
+    .slice(0, 120);
+
+  const pantryNames = pantryForAi.map((p) => p.name).filter(Boolean);
+  if (pantryNames.length === 0) {
     return NextResponse.json(
       { ok: false, error: "No pantry items found." },
       { status: 400 }
@@ -119,7 +231,7 @@ export async function POST(req: Request) {
 
   try {
     const recipes = await generateRecipesFromPantry({
-      pantryItems,
+      pantryItems: pantryForAi,
       mealType: body.mealType,
       who: body.who,
       servings: body.servings,
@@ -133,18 +245,32 @@ export async function POST(req: Request) {
           title: r.title,
           description: r.description,
         }).catch(() => null);
+        const amountMap = new Map<string, number>();
+        for (const a of r.ingredientAmountsG) {
+          const k = canonicalize(a.name);
+          if (!k) continue;
+          const v = Number(a.amountG);
+          if (!Number.isFinite(v) || v <= 0) continue;
+          amountMap.set(k, v);
+        }
         const ingredientsUsedDetailed = r.ingredientsUsed.map((name) => ({
           name,
           imageUrl: pickPantryImageUrl(name, pantry),
+          amountG: amountMap.get(canonicalize(name)) ?? null,
         }));
-        return { ...r, imageUrl, ingredientsUsedDetailed };
+        const macrosPerServing = computeRecipeMacrosPerServing({
+          servings: r.servings,
+          ingredientAmountsG: r.ingredientAmountsG,
+          pantry,
+        });
+        return { ...r, imageUrl, ingredientsUsedDetailed, macrosPerServing };
       })
     );
 
     return NextResponse.json({
       ok: true,
       recipes: withImages,
-      pantryCount: pantryItems.length,
+      pantryCount: pantryNames.length,
     });
   } catch (e) {
     const message =
