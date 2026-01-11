@@ -6,6 +6,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+    const t0 = Date.now();
     const formData = await req.formData();
     const file = formData.get("photo");
     if (!(file instanceof File)) {
@@ -22,12 +23,16 @@ export async function POST(req: Request) {
       );
     }
 
+    const tReadStart = Date.now();
     const bytes = Buffer.from(await file.arrayBuffer());
     const base64 = bytes.toString("base64");
+    const tReadMs = Date.now() - tReadStart;
+    const tDetectStart = Date.now();
     const out = await detectPantryItemsFromImage({
       base64,
       mimeType: file.type,
     });
+    const tDetectMs = Date.now() - tDetectStart;
 
     const items = out.items.filter((i) => i.confidence >= 0.3).slice(0, 30);
     if (items.length === 0) {
@@ -37,7 +42,14 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ items });
+    return NextResponse.json({
+      items,
+      timingMs: {
+        readFile: tReadMs,
+        detect: tDetectMs,
+        total: Date.now() - t0,
+      },
+    });
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Could not analyze photo. Try again.";

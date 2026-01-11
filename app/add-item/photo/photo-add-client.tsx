@@ -140,6 +140,61 @@ function makeId() {
   return `${Date.now()}-${Math.random()}`;
 }
 
+async function loadImageFromFile(file: File) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new window.Image();
+    img.src = url;
+    const decode = (img as unknown as { decode?: () => Promise<void> }).decode;
+    if (typeof decode === "function") {
+      await decode.call(img);
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load failed"));
+      });
+    }
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function downscaleForUpload(input: File) {
+  if (!input.type.startsWith("image/")) return input;
+  if (input.size <= 900_000) return input;
+
+  const img = await loadImageFromFile(input);
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) return input;
+
+  const maxDim = 1280;
+  const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+  if (scale >= 1) return input;
+
+  const outW = Math.max(1, Math.round(srcW * scale));
+  const outH = Math.max(1, Math.round(srcH * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return input;
+  ctx.drawImage(img, 0, 0, outW, outH);
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", 0.85);
+  });
+  if (!blob) return input;
+
+  const baseName = input.name.replace(/\.[^/.]+$/, "");
+  return new File([blob], `${baseName || "photo"}.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
+
 function readError(data: unknown) {
   if (!data || typeof data !== "object") return null;
   if (!("error" in data)) return null;
@@ -209,7 +264,9 @@ export function PhotoAddClient() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const macroRunRef = useRef(0);
   const macroAbortRef = useRef<Map<string, AbortController>>(new Map());
+  const photoPickRef = useRef(0);
   const [analyzing, setAnalyzing] = useState(false);
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -453,11 +510,30 @@ export function PhotoAddClient() {
             accept="image/*"
             capture="environment"
             className="hidden"
-            onChange={(e) => {
+            onChange={async (e) => {
               const file = e.currentTarget.files?.[0] ?? null;
+              const pickId = (photoPickRef.current += 1);
               if (photoPreview) URL.revokeObjectURL(photoPreview);
-              setPhotoFile(file);
-              setPhotoPreview(file ? URL.createObjectURL(file) : null);
+              setAnalyzeError(null);
+              setItems([]);
+              if (!file) {
+                setPhotoFile(null);
+                setPhotoPreview(null);
+                return;
+              }
+              setPreparingPhoto(true);
+              try {
+                const prepared = await downscaleForUpload(file);
+                if (photoPickRef.current !== pickId) return;
+                setPhotoFile(prepared);
+                setPhotoPreview(URL.createObjectURL(prepared));
+              } catch {
+                if (photoPickRef.current !== pickId) return;
+                setPhotoFile(file);
+                setPhotoPreview(URL.createObjectURL(file));
+              } finally {
+                if (photoPickRef.current === pickId) setPreparingPhoto(false);
+              }
               setItems([]);
             }}
           />
@@ -466,11 +542,30 @@ export function PhotoAddClient() {
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={(e) => {
+            onChange={async (e) => {
               const file = e.currentTarget.files?.[0] ?? null;
+              const pickId = (photoPickRef.current += 1);
               if (photoPreview) URL.revokeObjectURL(photoPreview);
-              setPhotoFile(file);
-              setPhotoPreview(file ? URL.createObjectURL(file) : null);
+              setAnalyzeError(null);
+              setItems([]);
+              if (!file) {
+                setPhotoFile(null);
+                setPhotoPreview(null);
+                return;
+              }
+              setPreparingPhoto(true);
+              try {
+                const prepared = await downscaleForUpload(file);
+                if (photoPickRef.current !== pickId) return;
+                setPhotoFile(prepared);
+                setPhotoPreview(URL.createObjectURL(prepared));
+              } catch {
+                if (photoPickRef.current !== pickId) return;
+                setPhotoFile(file);
+                setPhotoPreview(URL.createObjectURL(file));
+              } finally {
+                if (photoPickRef.current === pickId) setPreparingPhoto(false);
+              }
               setItems([]);
             }}
           />
@@ -494,7 +589,13 @@ export function PhotoAddClient() {
 
           {photoFile ? (
             <div className="text-xs text-muted-foreground">
-              {photoFile.name}
+              {photoFile.name} · {Math.round(photoFile.size / 1024)} KB
+            </div>
+          ) : null}
+
+          {preparingPhoto ? (
+            <div className="text-xs text-muted-foreground">
+              Preparing photo…
             </div>
           ) : null}
 
@@ -510,7 +611,11 @@ export function PhotoAddClient() {
             </div>
           ) : null}
 
-          <Button type="submit" className="w-full" disabled={analyzing}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={analyzing || preparingPhoto}
+          >
             {analyzing ? "Analyzing…" : "Analyze photo"}
           </Button>
 
