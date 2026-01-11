@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
@@ -90,6 +96,15 @@ export function InventoryClient(props: {
   deleteAction: (formData: FormData) => Promise<void>;
 }) {
   const actionRevealPx = 192;
+  const [lazyImageUrls, setLazyImageUrls] = useState<Record<string, string>>(
+    {}
+  );
+  const lazyImageInFlightRef = useRef(new Set<string>());
+  const lazyImageQueuedRef = useRef(new Set<string>());
+  const lazyImageQueueRef = useRef<string[]>([]);
+  const lazyImageQueueCursorRef = useRef(0);
+  const lazyImageRunnerActiveRef = useRef(false);
+  const mountedRef = useRef(false);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -107,16 +122,97 @@ export function InventoryClient(props: {
     startOffset: number;
   } | null>(null);
 
+  const itemsWithImages = useMemo(() => {
+    if (Object.keys(lazyImageUrls).length === 0) return props.items;
+    return props.items.map((item) => {
+      if (item.image_url) return item;
+      const url = lazyImageUrls[item.id];
+      if (!url) return item;
+      return { ...item, image_url: url };
+    });
+  }, [lazyImageUrls, props.items]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    for (const item of itemsWithImages) {
+      if (item.image_url) continue;
+      if (lazyImageUrls[item.id]) continue;
+      if (lazyImageInFlightRef.current.has(item.id)) continue;
+      if (lazyImageQueuedRef.current.has(item.id)) continue;
+      lazyImageQueuedRef.current.add(item.id);
+      lazyImageQueueRef.current.push(item.id);
+    }
+
+    if (lazyImageRunnerActiveRef.current) return;
+    if (lazyImageQueueCursorRef.current >= lazyImageQueueRef.current.length)
+      return;
+
+    lazyImageRunnerActiveRef.current = true;
+    const concurrency = 2;
+
+    const worker = async () => {
+      while (mountedRef.current) {
+        const index = lazyImageQueueCursorRef.current;
+        lazyImageQueueCursorRef.current += 1;
+        if (index >= lazyImageQueueRef.current.length) return;
+
+        const id = lazyImageQueueRef.current[index];
+        lazyImageInFlightRef.current.add(id);
+        try {
+          const res = await fetch("/api/pantry/ensure-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          const data = (await res.json().catch(() => null)) as unknown;
+          const imageUrl =
+            data && typeof data === "object" && "imageUrl" in data
+              ? (data as { imageUrl?: unknown }).imageUrl
+              : null;
+          if (mountedRef.current && typeof imageUrl === "string" && imageUrl) {
+            setLazyImageUrls((prev) =>
+              prev[id] ? prev : { ...prev, [id]: imageUrl }
+            );
+          }
+        } catch {
+        } finally {
+          lazyImageInFlightRef.current.delete(id);
+          lazyImageQueuedRef.current.delete(id);
+        }
+      }
+    };
+
+    void Promise.all(
+      new Array(concurrency).fill(null).map(() => worker())
+    ).finally(() => {
+      lazyImageRunnerActiveRef.current = false;
+      if (
+        lazyImageQueueCursorRef.current >= lazyImageQueueRef.current.length &&
+        lazyImageInFlightRef.current.size === 0
+      ) {
+        lazyImageQueueRef.current = [];
+        lazyImageQueueCursorRef.current = 0;
+        lazyImageQueuedRef.current.clear();
+      }
+    });
+  }, [itemsWithImages, lazyImageUrls]);
+
   const categories = useMemo(() => {
-    const set = new Set(props.items.map((i) => i.category).filter(Boolean));
+    const set = new Set(itemsWithImages.map((i) => i.category).filter(Boolean));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [props.items]);
+  }, [itemsWithImages]);
 
   const visibleItems = useMemo(() => {
-    if (hiddenIds.length === 0) return props.items;
+    if (hiddenIds.length === 0) return itemsWithImages;
     const hidden = new Set(hiddenIds);
-    return props.items.filter((i) => !hidden.has(i.id));
-  }, [hiddenIds, props.items]);
+    return itemsWithImages.filter((i) => !hidden.has(i.id));
+  }, [hiddenIds, itemsWithImages]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

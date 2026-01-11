@@ -6,7 +6,6 @@ import { redirect } from "next/navigation";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
-import { ensurePantryItemImage } from "@/lib/pantry-images";
 
 function parseQuantity(value: string): number {
   const n = Number(value);
@@ -71,10 +70,7 @@ export async function addBarcodeItemAction(formData: FormData) {
     barcode: barcode || null,
     imageUrl: imageUrl || null,
   });
-
-  if (id && !imageUrl) {
-    await ensurePantryItemImage({ id }).catch(() => null);
-  }
+  void id;
 
   revalidatePath("/inventory");
   redirect("/inventory");

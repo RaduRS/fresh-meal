@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
-import { ensurePantryItemImage } from "@/lib/pantry-images";
 
 type AddItemInput = {
   name: string;
@@ -187,9 +186,7 @@ export async function POST(req: Request) {
         fatG100g: nutritionPer100g.fatG,
         sugarG100g: nutritionPer100g.sugarG,
       });
-      if (id) {
-        await ensurePantryItemImage({ id }).catch(() => null);
-      }
+      void id;
       added += 1;
     }
 
