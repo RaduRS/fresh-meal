@@ -34,7 +34,10 @@ export async function POST(req: Request) {
     });
     const tDetectMs = Date.now() - tDetectStart;
 
-    const items = out.items.filter((i) => i.confidence >= 0.3).slice(0, 30);
+    const minConfidence = out.meta.provider === "gemini" ? 0.2 : 0.3;
+    const items = out.items
+      .filter((i) => i.confidence >= minConfidence)
+      .slice(0, 30);
     if (items.length === 0) {
       return NextResponse.json(
         { error: "No confident items detected. Try another photo." },
@@ -44,6 +47,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       items,
+      meta: out.meta,
       timingMs: {
         readFile: tReadMs,
         detect: tDetectMs,

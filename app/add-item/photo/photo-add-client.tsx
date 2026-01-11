@@ -268,6 +268,13 @@ export function PhotoAddClient() {
   const [analyzing, setAnalyzing] = useState(false);
   const [preparingPhoto, setPreparingPhoto] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [analyzeTiming, setAnalyzeTiming] = useState<{
+    readFile: number;
+    detect: number;
+    total: number;
+    provider?: string;
+    model?: string;
+  } | null>(null);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [items, setItems] = useState<UIItem[]>([]);
@@ -442,6 +449,7 @@ export function PhotoAddClient() {
         onSubmit={async (e) => {
           e.preventDefault();
           setAnalyzeError(null);
+          setAnalyzeTiming(null);
           setItems([]);
           if (!photoFile) {
             setAnalyzeError("Select a photo first.");
@@ -465,6 +473,40 @@ export function PhotoAddClient() {
                 readError(data) ?? "Could not analyze photo. Try again."
               );
               return;
+            }
+
+            if (data && typeof data === "object" && "timingMs" in data) {
+              const t = (data as Record<string, unknown>).timingMs;
+              if (t && typeof t === "object") {
+                const o = t as Record<string, unknown>;
+                const readFile = Number(o.readFile);
+                const detect = Number(o.detect);
+                const total = Number(o.total);
+                if (
+                  Number.isFinite(readFile) &&
+                  Number.isFinite(detect) &&
+                  Number.isFinite(total)
+                ) {
+                  let provider: string | undefined;
+                  let model: string | undefined;
+                  if (data && typeof data === "object" && "meta" in data) {
+                    const meta = (data as Record<string, unknown>).meta;
+                    if (meta && typeof meta === "object") {
+                      const m = meta as Record<string, unknown>;
+                      provider =
+                        typeof m.provider === "string" ? m.provider : undefined;
+                      model = typeof m.model === "string" ? m.model : undefined;
+                    }
+                  }
+                  setAnalyzeTiming({
+                    readFile,
+                    detect,
+                    total,
+                    provider,
+                    model,
+                  });
+                }
+              }
             }
 
             const parsed = readItems(data) ?? [];
@@ -621,6 +663,18 @@ export function PhotoAddClient() {
 
           {analyzeError ? (
             <div className="text-sm text-red-600">{analyzeError}</div>
+          ) : null}
+
+          {analyzeTiming ? (
+            <div className="text-xs text-muted-foreground">
+              Vision {Math.round(analyzeTiming.detect / 100) / 10}s · Total{" "}
+              {Math.round(analyzeTiming.total / 100) / 10}s
+              {analyzeTiming.provider
+                ? ` · ${analyzeTiming.provider}${
+                    analyzeTiming.model ? ` (${analyzeTiming.model})` : ""
+                  }`
+                : ""}
+            </div>
           ) : null}
         </div>
       </form>

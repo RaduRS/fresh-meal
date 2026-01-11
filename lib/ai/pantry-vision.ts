@@ -19,6 +19,16 @@ type DetectedItemsResponse = {
   items: DetectedItem[];
 };
 
+type DetectPantryItemsMeta = {
+  provider: "gemini" | "kimi";
+  model: string;
+};
+
+type DetectPantryItemsResult = {
+  items: DetectedItem[];
+  meta: DetectPantryItemsMeta;
+};
+
 function normalizeBaseUrl(raw: string) {
   const trimmed = raw.trim().replace(/[`"' ]+/g, "");
   return trimmed.replace(/\/+$/, "");
@@ -53,7 +63,16 @@ function repairJsonObject(text: string) {
 function getEnv(name: string) {
   const value = process.env[name];
   if (!value) return null;
-  return value.trim();
+  const trimmed = value.trim();
+  const unwrapped = trimmed.replace(/^[`"']+|[`"']+$/g, "").trim();
+  return unwrapped.length ? unwrapped : null;
+}
+
+function normalizeGeminiModelId(model: string) {
+  const trimmed = model.trim();
+  return trimmed.startsWith("models/")
+    ? trimmed.slice("models/".length)
+    : trimmed;
 }
 
 function extractJsonObject(text: string) {
@@ -109,7 +128,10 @@ Brand: ${JSON.stringify(brand || null)}`;
     content:
       "Return strictly valid JSON. Do not include markdown, backticks, or extra text.",
   };
-  const user: { role: "user"; content: string } = { role: "user", content: prompt };
+  const user: { role: "user"; content: string } = {
+    role: "user",
+    content: prompt,
+  };
 
   let lastError: unknown = null;
   for (const p of providers) {
@@ -171,171 +193,345 @@ Brand: ${JSON.stringify(brand || null)}`;
 export async function detectPantryItemsFromImage(input: {
   base64: string;
   mimeType: string;
-}) {
-  const apiKey = getEnv("KIMI_API_KEY");
-  const baseUrl =
-    getEnv("KIMI_BASE_URL") ?? getEnv("MOONSHOT_BASE_URL") ?? "https://api.moonshot.ai/v1";
-  const model =
-    getEnv("KIMI_VISION_MODEL") ?? getEnv("KIMI_MODEL") ?? "moonshot-v1-32k-vision-preview";
-  const maxTokensRaw = getEnv("KIMI_VISION_MAX_TOKENS");
-  const maxTokens = maxTokensRaw ? Number(maxTokensRaw) : 6000;
-  if (!apiKey) throw new Error("Missing KIMI_API_KEY");
+}): Promise<DetectPantryItemsResult> {
+  const providerRaw = (getEnv("VISION_PROVIDER") ?? "").toLowerCase();
+  const hasGemini = Boolean(getEnv("GEMINI_API_KEY"));
+  const providerExplicit = providerRaw === "gemini" || providerRaw === "kimi";
+  const provider = providerExplicit
+    ? (providerRaw as "gemini" | "kimi")
+    : hasGemini
+    ? "gemini"
+    : "kimi";
 
-  const prompt = `Analyze this photo and identify food items visible. Return ONLY valid JSON with this exact shape:
+  const prompt = `Analyze this photo and identify ALL food and drink items visible. Return ONLY valid JSON with this exact shape:
 {"items":[{"name":"Tomatoes","quantity":2,"quantityUnit":"count","confidence":0.92}]}
 
 Rules:
-- items: include only food items you are confident about
-- name: for packaged items, return the product name as a single item (include brand if visible). Do not split one package into multiple ingredients
-- name: for fresh items, use the most specific common UK name visible (e.g., "Cherry Tomatoes" not just "Tomatoes"), properly capitalized. If unsure, use the generic name
+- Aim for high recall: include every distinct item you can identify (up to 30)
+- items: include food/drink only (no plates, packaging materials, utensils)
+- name (packaged): use the product name and brand if visible; do not split one package into components
+- name (fresh): use the most specific common name visible, properly capitalized
 - quantityUnit: one of "count","g","ml"
 - quantity: number. This is the amount the user has.
-- For packaged items, read the NET WEIGHT / NET VOLUME from packaging (e.g., "1kg", "500g", "2L", "750ml") and convert it to quantity+quantityUnit (kg->g, L->ml). This is usually printed on the front or near nutrition facts
-- Use quantityUnit="count" only for naturally-counted items (e.g., eggs, bananas, individual fruits/veg) or if the packaging clearly specifies a count (e.g., "12 eggs")
-- If you cannot read weight/volume for a packaged dry good or drink, still choose the correct unit ("g" for dry goods like rice/pasta/cereal, "ml" for liquids) and estimate a typical size (rice often 1000g; pasta often 500g; cereal often 500g; drinks often 330ml/500ml/1000ml)
-- If the item is not in original packaging (e.g., dry goods in a jar/tupperware/bowl), estimate the amount the user has using visual volume/level and common sense; prefer "g" for dry goods and "ml" for liquids. Example: a medium jar half-full of rice might be ~300g
-- confidence: number 0 to 1
-- do not repeat the same item multiple times; merge duplicates into one item and adjust quantity
-- limit to at most 30 items
-- output must be compact JSON on a single line (no pretty printing)
-- do not include any extra keys or text`;
+- If NET WEIGHT / NET WT / VOLUME is visible, you MUST use "g" or "ml" and set quantity to that number (convert kg->g, L->ml)
+- Use quantityUnit="count" only for naturally-counted items (eggs, bananas, apples) OR if packaging clearly specifies a count (e.g., "12 eggs")
+- If the item is a LIQUID (milk, juice, water, soda, oil, sauces) and you cannot read volume, use "ml" and estimate a typical size:
+  - small bottle/can: 330ml
+  - medium bottle: 500ml
+  - large bottle/carton: 1000ml
+  - family size: 2000ml
+- If the item is a PACKAGED DRY GOOD / SOLID (rice, pasta, cereal, flour, cheese, meat) and you cannot read weight, use "g" and estimate a typical size:
+  - small pack: 250g
+  - standard pack: 500g
+  - large bag: 1000g
+- If the item is not in original packaging (e.g. opened jar/tupperware/bowl), estimate how much the user has using visible fill level; use "g" for solids and "ml" for liquids.
+- merge duplicates; prefer the clearest name; confidence 0.2..1
+- output must be compact JSON on a single line; no extra keys/text`;
 
-  const url = `${toV1BaseUrl(baseUrl)}/chat/completions`;
-  const dataUrl = `data:${input.mimeType};base64,${input.base64}`;
+  function dedupeItems(items: DetectedItem[]) {
+    const deduped = new Map<
+      string,
+      {
+        name: string;
+        quantity: number;
+        quantityUnit: "count" | "g" | "ml";
+        confidence: number;
+      }
+    >();
 
-  const res = await fetch(url, {
-    method: "POST",
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Return strictly valid JSON. Do not include markdown, backticks, extra text, or pretty formatting.",
+    for (const item of items) {
+      if (typeof item?.name !== "string") continue;
+      const name = String(item.name).trim();
+      if (!name) continue;
+
+      const q = Number(item.quantity);
+      const c = Number(item.confidence);
+      const quantity = Number.isFinite(q)
+        ? Math.max(0, Math.round(q * 100) / 100)
+        : 1;
+      const unit =
+        item.quantityUnit === "g" ||
+        item.quantityUnit === "ml" ||
+        item.quantityUnit === "count"
+          ? item.quantityUnit
+          : "count";
+      const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
+
+      const key = canonicalizeName(name);
+      if (!key) continue;
+
+      const existing = deduped.get(key);
+      if (!existing) {
+        deduped.set(key, { name, quantity, quantityUnit: unit, confidence });
+        continue;
+      }
+
+      const mergedUnit =
+        existing.quantityUnit === "count" && unit !== "count"
+          ? unit
+          : unit === "count" && existing.quantityUnit !== "count"
+          ? existing.quantityUnit
+          : existing.confidence >= confidence
+          ? existing.quantityUnit
+          : unit;
+
+      deduped.set(key, {
+        name: existing.name.length >= name.length ? existing.name : name,
+        quantity: Math.max(existing.quantity, quantity),
+        quantityUnit: mergedUnit,
+        confidence: Math.max(existing.confidence, confidence),
+      });
+    }
+
+    return Array.from(deduped.values());
+  }
+
+  async function runGemini(): Promise<DetectPantryItemsResult> {
+    const apiKey = getEnv("GEMINI_API_KEY");
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+    const model = normalizeGeminiModelId(
+      getEnv("GEMINI_VISION_MODEL") ?? "gemini-2.0-flash-exp"
+    );
+    const baseUrl =
+      getEnv("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com";
+    const maxTokensRaw = getEnv("GEMINI_VISION_MAX_TOKENS");
+    const maxTokens = maxTokensRaw ? Number(maxTokensRaw) : 12000;
+    const timeoutMsRaw = getEnv("GEMINI_VISION_TIMEOUT_MS");
+    const timeoutMs = timeoutMsRaw ? Number(timeoutMsRaw) : 75_000;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const url = `${baseUrl.replace(
+        /\/+$/,
+        ""
+      )}/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
         },
-        {
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: dataUrl } },
-            { type: "text", text: prompt },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  inlineData: { mimeType: input.mimeType, data: input.base64 },
+                },
+                { text: prompt },
+              ],
+            },
           ],
-        },
-      ],
-      tools: [
-        {
-          type: "function",
-          function: {
-            name: "set_detected_items",
-            description: "Return detected pantry items from the image.",
-            parameters: {
-              type: "object",
-              additionalProperties: false,
-              required: ["items"],
-              properties: {
-                items: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["name", "quantity", "quantityUnit", "confidence"],
-                    properties: {
-                      name: { type: "string" },
-                      quantity: { type: "number" },
-                      quantityUnit: { type: "string", enum: ["count", "g", "ml"] },
-                      confidence: { type: "number" },
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: Number.isFinite(maxTokens)
+              ? Math.max(300, maxTokens)
+              : 600,
+            responseMimeType: "application/json",
+          },
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Gemini vision error (${res.status}): ${body}`);
+      }
+
+      const data = (await res.json()) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+        }>;
+      };
+      const parts = data.candidates?.[0]?.content?.parts ?? [];
+      const text = parts
+        .map((p) => p.text)
+        .filter(Boolean)
+        .join("\n");
+      if (!text) throw new Error("Gemini returned no text");
+
+      const jsonText = repairJsonObject(text);
+      if (!jsonText) throw new Error("Gemini returned non-JSON output");
+
+      let parsed: DetectedItemsResponse;
+      try {
+        parsed = JSON.parse(jsonText) as DetectedItemsResponse;
+      } catch (e) {
+        const message =
+          e instanceof Error ? e.message : "Could not parse model JSON";
+        const snippet =
+          typeof text === "string"
+            ? text.replace(/\s+/g, " ").slice(0, 400)
+            : "";
+        throw new Error(
+          `Gemini returned invalid JSON: ${message}${
+            snippet ? ` (${snippet})` : ""
+          }`
+        );
+      }
+
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      return { items: dedupeItems(items), meta: { provider: "gemini", model } };
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        throw new Error(`Gemini vision timed out after ${timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function runKimi(): Promise<DetectPantryItemsResult> {
+    const apiKey = getEnv("KIMI_API_KEY");
+    if (!apiKey) throw new Error("Missing KIMI_API_KEY");
+    const baseUrl =
+      getEnv("KIMI_BASE_URL") ??
+      getEnv("MOONSHOT_BASE_URL") ??
+      "https://api.moonshot.ai/v1";
+    const model =
+      getEnv("KIMI_VISION_MODEL") ??
+      getEnv("MOONSHOT_VISION_MODEL") ??
+      "moonshot-v1-32k-vision-preview";
+    const maxTokensRaw = getEnv("KIMI_VISION_MAX_TOKENS");
+    const maxTokens = maxTokensRaw ? Number(maxTokensRaw) : 600;
+    const timeoutMsRaw = getEnv("KIMI_VISION_TIMEOUT_MS");
+    const timeoutMs = timeoutMsRaw ? Number(timeoutMsRaw) : 75_000;
+
+    const url = `${toV1BaseUrl(baseUrl)}/chat/completions`;
+    const dataUrl = `data:${input.mimeType};base64,${input.base64}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Return strictly valid JSON. Do not include markdown, backticks, extra text, or pretty formatting.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: dataUrl } },
+                { type: "text", text: prompt },
+              ],
+            },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "set_detected_items",
+                description: "Return detected pantry items from the image.",
+                parameters: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["items"],
+                  properties: {
+                    items: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        additionalProperties: false,
+                        required: [
+                          "name",
+                          "quantity",
+                          "quantityUnit",
+                          "confidence",
+                        ],
+                        properties: {
+                          name: { type: "string" },
+                          quantity: { type: "number" },
+                          quantityUnit: {
+                            type: "string",
+                            enum: ["count", "g", "ml"],
+                          },
+                          confidence: { type: "number" },
+                        },
+                      },
                     },
                   },
                 },
               },
             },
+          ],
+          tool_choice: {
+            type: "function",
+            function: { name: "set_detected_items" },
           },
+          max_tokens: Number.isFinite(maxTokens)
+            ? Math.max(300, maxTokens)
+            : 1200,
+          temperature: 0,
+        }),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-      ],
-      tool_choice: { type: "function", function: { name: "set_detected_items" } },
-      max_tokens: Number.isFinite(maxTokens) ? Math.max(500, maxTokens) : 6000,
-      temperature: 0,
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Kimi vision error (${res.status}): ${body}`);
-  }
-
-  const data = (await res.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-        tool_calls?: Array<{ function?: { arguments?: string } }>;
-      };
-    }>;
-  };
-  const toolArgs = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  const text = typeof toolArgs === "string" ? toolArgs : data.choices?.[0]?.message?.content;
-
-  if (!text) throw new Error("Kimi returned no text");
-
-  const jsonText = repairJsonObject(text);
-  if (!jsonText) throw new Error("Kimi returned non-JSON output");
-
-  let parsed: DetectedItemsResponse;
-  try {
-    parsed = JSON.parse(jsonText) as DetectedItemsResponse;
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not parse model JSON";
-    throw new Error(message);
-  }
-  const items = Array.isArray(parsed.items) ? parsed.items : [];
-
-  const deduped = new Map<
-    string,
-    { name: string; quantity: number; quantityUnit: "count" | "g" | "ml"; confidence: number }
-  >();
-
-  for (const item of items) {
-    if (typeof item?.name !== "string") continue;
-    const name = String(item.name).trim();
-    if (!name) continue;
-
-    const q = Number(item.quantity);
-    const c = Number(item.confidence);
-    const quantity = Number.isFinite(q) ? Math.max(0, Math.round(q * 100) / 100) : 1;
-    const unit =
-      item.quantityUnit === "g" || item.quantityUnit === "ml" || item.quantityUnit === "count"
-        ? item.quantityUnit
-        : "count";
-    const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
-
-    const key = canonicalizeName(name);
-    if (!key) continue;
-
-    const existing = deduped.get(key);
-    if (!existing) {
-      deduped.set(key, { name, quantity, quantityUnit: unit, confidence });
-      continue;
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        throw new Error(`Kimi vision timed out after ${timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeout);
     }
 
-    const mergedUnit =
-      existing.quantityUnit === "count" && unit !== "count"
-        ? unit
-        : unit === "count" && existing.quantityUnit !== "count"
-          ? existing.quantityUnit
-          : existing.confidence >= confidence
-            ? existing.quantityUnit
-            : unit;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Kimi vision error (${res.status}): ${body}`);
+    }
 
-    deduped.set(key, {
-      name: existing.name.length >= name.length ? existing.name : name,
-      quantity: Math.max(existing.quantity, quantity),
-      quantityUnit: mergedUnit,
-      confidence: Math.max(existing.confidence, confidence),
-    });
+    const data = (await res.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string;
+          tool_calls?: Array<{ function?: { arguments?: string } }>;
+        };
+      }>;
+    };
+    const toolArgs =
+      data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+    const text =
+      typeof toolArgs === "string"
+        ? toolArgs
+        : data.choices?.[0]?.message?.content;
+
+    if (!text) throw new Error("Kimi returned no text");
+
+    const jsonText = repairJsonObject(text);
+    if (!jsonText) throw new Error("Kimi returned non-JSON output");
+
+    let parsed: DetectedItemsResponse;
+    try {
+      parsed = JSON.parse(jsonText) as DetectedItemsResponse;
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Could not parse model JSON";
+      throw new Error(message);
+    }
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    return { items: dedupeItems(items), meta: { provider: "kimi", model } };
   }
 
-  return { items: Array.from(deduped.values()) };
-}
+  if (provider === "gemini") {
+    try {
+      return await runGemini();
+    } catch (e) {
+      if (!providerExplicit && getEnv("KIMI_API_KEY")) return await runKimi();
+      throw e;
+    }
+  }
 
+  return await runKimi();
+}
