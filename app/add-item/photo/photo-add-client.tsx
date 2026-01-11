@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Beef, Candy, Droplet, Flame, Wheat } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -203,12 +203,21 @@ function readItems(data: unknown): AnalyzeItem[] | null {
 
 export function PhotoAddClient() {
   const router = useRouter();
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [items, setItems] = useState<UIItem[]>([]);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
 
   const selectedCount = useMemo(
     () => items.filter((i) => i.selected).length,
@@ -239,11 +248,14 @@ export function PhotoAddClient() {
         onSubmit={async (e) => {
           e.preventDefault();
           setAnalyzeError(null);
-          setAnalyzing(true);
           setItems([]);
-
-          const form = e.currentTarget;
-          const fd = new FormData(form);
+          if (!photoFile) {
+            setAnalyzeError("Select a photo first.");
+            return;
+          }
+          setAnalyzing(true);
+          const fd = new FormData();
+          fd.set("photo", photoFile);
 
           try {
             const res = await fetch("/api/photo/analyze", {
@@ -286,23 +298,61 @@ export function PhotoAddClient() {
         }}
       >
         <div className="grid grid-cols-1 gap-3">
-          <div className="text-sm font-medium">Take a photo</div>
+          <div className="text-sm font-medium">Add a photo</div>
           <div className="text-sm text-muted-foreground">
             We’ll detect items, then you confirm before saving.
           </div>
 
-          <Input
-            name="photo"
+          <input
+            ref={cameraInputRef}
             type="file"
             accept="image/*"
             capture="environment"
-            required
+            className="hidden"
             onChange={(e) => {
               const file = e.currentTarget.files?.[0] ?? null;
-              if (!file) return setPhotoPreview(null);
-              setPhotoPreview(URL.createObjectURL(file));
+              if (photoPreview) URL.revokeObjectURL(photoPreview);
+              setPhotoFile(file);
+              setPhotoPreview(file ? URL.createObjectURL(file) : null);
+              setItems([]);
             }}
           />
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0] ?? null;
+              if (photoPreview) URL.revokeObjectURL(photoPreview);
+              setPhotoFile(file);
+              setPhotoPreview(file ? URL.createObjectURL(file) : null);
+              setItems([]);
+            }}
+          />
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => cameraInputRef.current?.click()}
+            >
+              Take photo
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              Upload photo
+            </Button>
+          </div>
+
+          {photoFile ? (
+            <div className="text-xs text-muted-foreground">
+              {photoFile.name}
+            </div>
+          ) : null}
 
           {photoPreview ? (
             <div className="relative h-48 w-full overflow-hidden rounded-lg border">
