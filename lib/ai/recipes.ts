@@ -210,6 +210,7 @@ export async function generateRecipesFromPantry(input: {
   who: Who;
   servings: number;
   diet: Diet;
+  maxTimeMinutes: number | null;
 }) {
   const pantry = input.pantryItems
     .map((p) => ({
@@ -236,13 +237,17 @@ ${JSON.stringify(pantry)}
 
 Task:
 - Generate 3 recipes.
+- If a time limit is provided, timeMinutes must be <= that limit.
 - Strong preference: missingIngredients must be [] (zero missing items).
 - If you truly cannot make 3 recipes with zero missing, you may include at most 2 missing items, but only if pantryCoverage >= 80.
 - Avoid brand names in ingredient lists; use generic ingredient terms.
 - Prefer dinner-friendly options if meal type is dinner.
 - Keep steps short and actionable (mobile friendly).
 - Recipes can be cooked OR no-cook "assemble and serve" meals (e.g., toast + milk + fruit or similar combinations).
-- For breakfast, include at least 1 no-cook/low-prep option if possible.
+- Keep recipes coherent: do not combine unrelated sweet and savory items in the same dish.
+- Examples of bad combos: yogurt bowl with cherry tomatoes, ice cream with soup, cereal with tuna.
+- Examples of good low-prep meals: toast/sandwich, yogurt bowl with fruit/granola/nuts, snack plate, simple salad.
+- Prefer 1 main dish concept per recipe; avoid "kitchen sink" ingredient lists.
 - Include ingredientAmountsG: for each ingredient in ingredientsUsed, estimate grams used in the whole recipe.
 - Use grams for everything, including liquids (convert to grams).
 - ingredientAmountsG.name must match an item in ingredientsUsed.
@@ -302,6 +307,11 @@ Rules:
       computeCoveragePercent(pantryNames, ingredientsUsed)
     );
     if (steps.length < 4) continue;
+    if (
+      typeof input.maxTimeMinutes === "number" &&
+      timeMinutes > input.maxTimeMinutes
+    )
+      continue;
 
     const id = makeId(`${title}|${ingredientsUsed.join("|")}`);
     const recipe: AiRecipe = {

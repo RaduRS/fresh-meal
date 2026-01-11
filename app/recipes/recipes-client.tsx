@@ -118,7 +118,15 @@ function getStoredFilters() {
       ? (obj.diet as Diet)
       : null;
 
-  return { mealType, who, servings, diet };
+  const maxTimeMinutesRaw = Number(obj.maxTimeMinutes);
+  const maxTimeMinutes =
+    obj.maxTimeMinutes === null || typeof obj.maxTimeMinutes === "undefined"
+      ? null
+      : Number.isFinite(maxTimeMinutesRaw)
+      ? Math.max(5, Math.min(180, Math.floor(maxTimeMinutesRaw)))
+      : null;
+
+  return { mealType, who, servings, diet, maxTimeMinutes };
 }
 
 function getStoredRecipes(): Recipe[] {
@@ -145,6 +153,10 @@ export function RecipesClient() {
     const stored = getStoredFilters();
     return stored?.diet ?? getStoredDiet();
   });
+  const [maxTimeMinutes, setMaxTimeMinutes] = useState<number | null>(() => {
+    const stored = getStoredFilters();
+    return stored?.maxTimeMinutes ?? 15;
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>(() => getStoredRecipes());
@@ -161,8 +173,10 @@ export function RecipesClient() {
         : mealType === "lunch"
         ? "Lunch"
         : "Dinner";
-    return `${mealLabel} • ${whoLabel} • Servings ${servings}`;
-  }, [mealType, servings, who]);
+    const timeLabel =
+      typeof maxTimeMinutes === "number" ? `${maxTimeMinutes} min` : "No limit";
+    return `${mealLabel} • ${whoLabel} • Servings ${servings} • ${timeLabel}`;
+  }, [mealType, servings, who, maxTimeMinutes]);
 
   return (
     <div className="grid grid-cols-1 gap-4">
@@ -230,6 +244,36 @@ export function RecipesClient() {
             </Select>
           </div>
 
+          <div className="grid gap-2">
+            <Label htmlFor="maxTimeMinutes">Time available</Label>
+            <Select
+              id="maxTimeMinutes"
+              value={
+                typeof maxTimeMinutes === "number"
+                  ? String(maxTimeMinutes)
+                  : "none"
+              }
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                if (v === "none") {
+                  setMaxTimeMinutes(null);
+                  return;
+                }
+                setMaxTimeMinutes(Number(v));
+              }}
+            >
+              <option value="5">5 min</option>
+              <option value="10">10 min</option>
+              <option value="15">15 min</option>
+              <option value="20">20 min</option>
+              <option value="30">30 min</option>
+              <option value="45">45 min</option>
+              <option value="60">60 min</option>
+              <option value="120">2 hours</option>
+              <option value="none">No limit</option>
+            </Select>
+          </div>
+
           <Button
             type="button"
             className="w-full"
@@ -242,7 +286,13 @@ export function RecipesClient() {
                 const res = await fetch("/api/recipes/ai", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mealType, who, diet, servings }),
+                  body: JSON.stringify({
+                    mealType,
+                    who,
+                    diet,
+                    servings,
+                    maxTimeMinutes,
+                  }),
                 });
                 const data = (await res.json()) as unknown;
                 if (!res.ok) {
@@ -269,7 +319,13 @@ export function RecipesClient() {
                 try {
                   window.localStorage.setItem(
                     "recipes:lastFilters",
-                    JSON.stringify({ mealType, who, diet, servings })
+                    JSON.stringify({
+                      mealType,
+                      who,
+                      diet,
+                      servings,
+                      maxTimeMinutes,
+                    })
                   );
                   window.localStorage.setItem(
                     "recipes:lastResults",

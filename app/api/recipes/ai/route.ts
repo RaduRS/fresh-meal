@@ -21,6 +21,7 @@ type RequestBody = {
   who: Who;
   diet: Diet;
   servings: number;
+  maxTimeMinutes: number | null;
 };
 
 function canonicalize(s: string) {
@@ -197,8 +198,16 @@ function readBody(data: unknown): RequestBody | null {
     ? Math.max(1, Math.floor(servingsRaw))
     : 2;
 
+  const maxTimeMinutesRaw = Number(obj.maxTimeMinutes);
+  const maxTimeMinutes =
+    obj.maxTimeMinutes === null || typeof obj.maxTimeMinutes === "undefined"
+      ? null
+      : Number.isFinite(maxTimeMinutesRaw)
+      ? Math.max(5, Math.min(180, Math.floor(maxTimeMinutesRaw)))
+      : 15;
+
   if (!mealType) return null;
-  return { mealType, who, diet, servings };
+  return { mealType, who, diet, servings, maxTimeMinutes };
 }
 
 export async function POST(req: Request) {
@@ -250,6 +259,7 @@ export async function POST(req: Request) {
       who: body.who,
       servings: body.servings,
       diet: body.diet,
+      maxTimeMinutes: body.maxTimeMinutes,
     });
 
     const withImages = await Promise.all(
