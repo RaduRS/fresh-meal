@@ -281,6 +281,7 @@ Task:
 - Examples of bad combos: yogurt bowl with cherry tomatoes, ice cream with soup, cereal with tuna.
 - Examples of good low-prep meals: toast/sandwich, yogurt bowl with fruit/granola/nuts, snack plate, simple salad.
 - Prefer 1 main dish concept per recipe; avoid "kitchen sink" ingredient lists.
+- Steps must not mention ingredients that are not listed in ingredientsUsed or missingIngredients.
 - Include ingredientAmountsG: for each ingredient in ingredientsUsed, estimate grams used in the whole recipe.
 - Use grams for everything, including liquids (convert to grams).
 - ingredientAmountsG.name must match an item in ingredientsUsed.
