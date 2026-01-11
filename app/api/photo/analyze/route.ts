@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { detectPantryItemsFromImage } from "@/lib/ai/gemini";
+import { detectPantryItemsFromImage } from "@/lib/ai/pantry-vision";
 
 export const runtime = "nodejs";
 

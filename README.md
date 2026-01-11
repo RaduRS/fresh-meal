@@ -33,11 +33,9 @@ Single user (personal use), health-conscious, wants practical tools that fit nat
   - No authentication required for MVP
 
 ### APIs
-1. **Gemini 2.5 Flash** (Google AI Studio API)
-   - Image recognition for food items (fruits, vegetables, packaged goods)
-   - Recipe generation (AI-only recipe discovery)
-   - Missing ingredient suggestions (0 preferred, up to 2 if needed)
-   - Free tier: unlimited requests for personal use
+1. **AI Providers: DeepSeek + Kimi (Moonshot)**
+   - Kimi Vision: detects pantry items from a photo
+   - DeepSeek (preferred) + Kimi (fallback): text generation (recipes, macro estimation, name normalization, category suggestions)
 
 2. **Open Food Facts API**
    - Barcode scanning for packaged products
@@ -102,41 +100,41 @@ Single user (personal use), health-conscious, wants practical tools that fit nat
 1. User taps "Take Photo" button
 2. Camera opens with preview
 3. User takes photo of multiple food items
-4. Photo uploads to Gemini 2.5 Flash API
+4. Photo uploads to the app API (`/api/photo/analyze`), which uses Kimi Vision
 5. AI returns detected items as structured JSON:
    ```json
    {
      "items": [
-       {"name": "Tomatoes", "quantity": 2, "category": "Vegetable", "confidence": 0.95},
-       {"name": "Milk", "quantity": 1, "category": "Dairy", "confidence": 0.88}
+      {"name": "Tomatoes", "quantity": 2, "quantityUnit": "count", "confidence": 0.95},
+      {"name": "Milk", "quantity": 1000, "quantityUnit": "ml", "confidence": 0.88}
      ]
    }
 ```
 
 6. **Confirmation screen** displays list of detected items:
-    - Each item shows name, quantity, category
+    - Each item shows name, quantity, unit, confidence
+    - Macros per 100g are estimated asynchronously per item (DeepSeek first, then Kimi)
     - Edit icon to modify details
     - Delete icon to remove false detections
-    - "Add All" button
-    - "Add Selected" button
-7. On confirm → save selected items to Supabase
+    - "Add items" button (enabled once selected items have macros)
+7. On confirm → save selected items to Supabase (via `/api/photo/add`)
 8. Optionally save photo to Supabase Storage with reference to items
 
 **Technical Details:**
 
-- Gemini 2.5 Flash API prompt:
+- Kimi Vision prompt:
 
 ```
 Analyze this image and identify all food items visible. Return a JSON array with:
 - name: common name of the food item
-- quantity: estimated number of items (use 1 if unclear)
-- category: one of [Vegetable, Fruit, Dairy, Meat, Grain, Condiment, Beverage, Other]
+- quantity: estimated amount the user has
+- quantityUnit: one of "count", "g", "ml"
 - confidence: 0-1 score of detection confidence
 
 Only include items you're confident about (confidence > 0.7).
 ```
 
-- Upload image to Supabase Storage first, then send URL to Gemini API
+- The photo is sent directly to the app API and forwarded as a data URL to Kimi Vision
 - Implement retry logic for API failures
 
 
@@ -216,7 +214,7 @@ Three consecutive dropdowns on recipe discovery screen:
 4. **Backend Process:**
 a. Fetch all items from Supabase `pantry_items` where `deleted_at IS NULL`
 b. Build comma-separated ingredient list
-c. Call Gemini 2.5 Flash to generate recipe ideas:
+c. Call the AI provider (DeepSeek first, then Kimi) to generate recipe ideas:
     - Generate 3 recipes
     - Prefer 0 missing ingredients
     - Allow up to 2 missing items only if pantry coverage is high
@@ -295,7 +293,7 @@ Each recipe card shows:
 Simple settings page with:
 
 - **Dietary Preference** (dropdown, saved to localStorage or Supabase user_settings table)
-- **Health Goals** (text area, used in Gemini prompts)
+- **Health Goals** (text area, used in AI prompts)
 - **Clear All Inventory** button (with confirmation dialog)
 - **About/Help** section
 
@@ -401,118 +399,24 @@ components/
 
 ## API Integration
 
-### Gemini 2.5 Flash (Google AI Studio)
+### AI Providers (DeepSeek + Kimi)
 
-#### Setup
+This project uses OpenAI-compatible chat-completions style APIs for text generation, and Moonshot/Kimi vision for photo detection.
 
-```typescript
-// lib/gemini.ts
-import { GoogleGenerativeAI } from "@google/generative-ai";
+#### Where AI is used
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+- Photo → items (fast): `POST /api/photo/analyze` uses Kimi Vision to detect `{name, quantity, unit, confidence}` and returns immediately.
+- Item macros (async): the client calls `POST /api/nutrition/estimate` per item to estimate `nutritionPer100g` (DeepSeek first, then Kimi).
+- Barcode lookup: `GET /api/barcode/lookup?barcode=...` uses OpenFoodFacts nutriments when available; otherwise estimates missing macros via the same text estimator.
+- Recipe generation: `POST /api/recipes/ai` generates 3 recipes via DeepSeek first, then Kimi.
 
-export async function analyzeFood(imageUrl: string) {
-  const prompt = `Analyze this image and identify all food items visible. Return a JSON array with:
-  - name: common name of the food item
-  - quantity: estimated number of items (use 1 if unclear)
-  - category: one of [Vegetable, Fruit, Dairy, Meat, Grain, Condiment, Beverage, Other]
-  - confidence: 0-1 score of detection confidence
-  
-  Only include items you're confident about (confidence > 0.7).
-  Return ONLY valid JSON, no markdown or explanations.`;
-  
-  const result = await model.generateContent([
-    prompt,
-    {
-      inlineData: {
-        mimeType: "image/jpeg",
-        data: imageUrl // base64 or URL
-      }
-    }
-  ]);
-  
-  const text = result.response.text();
-  return JSON.parse(text);
-}
+#### Provider selection
 
-export async function rankRecipes(recipes: any[], ingredients: string[], dietaryPreference: string) {
-  const prompt = `Given these recipes and the user's goal of healthy eating, rank them from best to worst.
-  Consider:
-  - Nutritional balance (protein, veggies, whole grains)
-  - Cooking complexity
-  - Number of missing ingredients
-  
-  User's dietary preference: ${dietaryPreference}
-  User has these ingredients: ${ingredients.join(", ")}
-  
-  Recipes:
-  ${JSON.stringify(recipes)}
-  
-  Return ranked recipes as JSON with added fields:
-  - health_score: 0-100
-  - why_healthy: brief explanation (max 20 words)
-  - missing_ingredients: array of ingredients user needs to buy
-  - estimated_cost: "low" | "medium" | "high" for missing ingredients
-  
-  Return ONLY valid JSON array, no markdown.`;
-  
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  return JSON.parse(text);
-}
-```
-
+Text generation uses the provider list returned by `lib/ai/providers.ts`:
+- DeepSeek is preferred when `DEEPSEEK_API_KEY` is set.
+- Kimi is used as a fallback (or primary if DeepSeek isn’t configured).
 
 ### Spoonacular API
-
-#### Setup
-
-```typescript
-// lib/spoonacular.ts
-const SPOONACULAR_API_KEY = process.env.SPOONACULAR_API_KEY!;
-const BASE_URL = "https://api.spoonacular.com";
-
-export async function findRecipesByIngredients(
-  ingredients: string[],
-  mealType: string,
-  servings: number
-) {
-  const ingredientsParam = ingredients.join(",");
-  
-  const response = await fetch(
-    `${BASE_URL}/recipes/findByIngredients?` +
-    `ingredients=${encodeURIComponent(ingredientsParam)}` +
-    `&number=10` +
-    `&ranking=2` +
-    `&ignorePantry=false` +
-    `&apiKey=${SPOONACULAR_API_KEY}`
-  );
-  
-  if (!response.ok) throw new Error("Spoonacular API error");
-  
-  const recipes = await response.json();
-  
-  // Fetch detailed info for each recipe
-  const detailedRecipes = await Promise.all(
-    recipes.map(async (recipe: any) => {
-      const detailResponse = await fetch(
-        `${BASE_URL}/recipes/${recipe.id}/information?apiKey=${SPOONACULAR_API_KEY}`
-      );
-      return detailResponse.json();
-    })
-  );
-  
-  // Filter by meal type and servings
-  return detailedRecipes.filter((r: any) => {
-    const matchesMealType = r.dishTypes?.includes(mealType.toLowerCase());
-    const matchesServings = Math.abs(r.servings - servings) <= 1;
-    return matchesMealType && matchesServings;
-  });
-}
-```
-
-
 ### Open Food Facts API
 
 #### Setup
@@ -560,17 +464,16 @@ export async function getProductByBarcode(barcode: string) {
 5. Camera view opens (full screen)
 6. User positions camera over multiple food items
 7. Taps capture button
-8. Photo uploads to Supabase Storage
-9. Loading spinner: "Analyzing image..."
-10. Gemini API returns detected items
-11. Confirmation dialog appears:
+8. Loading spinner: "Analyzing image..."
+9. App calls `POST /api/photo/analyze` (Kimi Vision)
+10. Confirmation dialog appears immediately with detected items
     - Title: "Confirm Items"
-    - List of detected items with name, quantity, category
+    - List of detected items with name, quantity, unit, confidence
     - Each item has Edit and Delete icons
-    - Bottom buttons: "Cancel" | "Add All"
-12. User reviews, maybe deletes a false positive, taps "Add All"
-13. Items saved to Supabase `pantry_items`
-14. Success toast: "3 items added to pantry"
+11. Macros per 100g are estimated asynchronously per item via `POST /api/nutrition/estimate`
+12. User reviews, maybe deletes a false positive, taps "Add items"
+13. Items saved to Supabase `pantry_items` (via `POST /api/photo/add`)
+14. Success toast: "Items added to pantry"
 15. Returns to Inventory page, new items visible
 
 ### Flow 2: Find Recipe for Lunch (2 Adults)
@@ -586,23 +489,14 @@ export async function getProductByBarcode(barcode: string) {
 6. Loading overlay: "Searching recipes..."
 7. Backend:
     - Fetches 8 ingredients from Supabase
-    - Calls Spoonacular with ingredients + filters
-    - Gets 7 matching recipes
-    - Sends to Gemini for ranking
-    - Gemini adds health scores and missing ingredients
-8. Results appear (7 recipe cards in list)
-9. User scrolls, sees:
-    - "Caprese Salad Sandwich" - 92/100 Healthy
-        - "High in protein and fresh veggies"
-        - Missing: olive oil, balsamic vinegar (Low cost)
-    - "Chicken Caesar Wrap" - 78/100 Healthy
-        - "Good protein, but high in sodium"
-        - Missing: caesar dressing, parmesan (Medium cost)
+    - Calls `POST /api/recipes/ai` (DeepSeek first, then Kimi) to generate 3 recipes
+    - Generates recipe images (Nebius) and returns results
+8. Results appear (3 recipe cards in list)
+9. User scrolls and picks a recipe
 10. User taps "Caprese Salad Sandwich"
 11. Full recipe page opens:
     - Large recipe image
     - Title, servings, cooking time (15 min)
-    - Health score badge
     - Ingredients list:
         - ✓ Tomatoes (you have this)
         - ✓ Mozzarella (you have this)
@@ -610,7 +504,6 @@ export async function getProductByBarcode(barcode: string) {
         - ✗ Olive oil (need to buy)
         - ✗ Balsamic vinegar (need to buy)
     - Step-by-step instructions
-    - Nutrition facts table
 12. User follows recipe, makes lunch
 
 ### Flow 3: Remove Used Items
@@ -643,7 +536,7 @@ export async function getProductByBarcode(barcode: string) {
 - Display user-friendly error messages (toast notifications)
 - Log errors to console in development
 - Implement retry logic for network failures
-- Graceful degradation (e.g., if Gemini fails, still show Spoonacular results)
+- Graceful degradation (e.g., if AI fails, still show Spoonacular results)
 
 
 ### Performance
@@ -678,8 +571,14 @@ Create `.env.local`:
 ```
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-GEMINI_API_KEY=your_gemini_api_key
-SPOONACULAR_API_KEY=your_spoonacular_api_key
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+KIMI_API_KEY=your_kimi_api_key
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_MODEL=kimi-k2-0905-preview
+KIMI_VISION_MODEL=moonshot-v1-32k-vision-preview
+KIMI_VISION_MAX_TOKENS=6000
 ```
 
 
@@ -690,8 +589,8 @@ SPOONACULAR_API_KEY=your_spoonacular_api_key
 - Node.js 18+
 - npm or yarn or pnpm
 - Supabase account (free tier)
-- Google AI Studio API key (free tier)
-- Spoonacular API key (free tier)
+- DeepSeek API key
+- Moonshot/Kimi API key
 
 
 ### Installation Steps
@@ -704,8 +603,8 @@ SPOONACULAR_API_KEY=your_spoonacular_api_key
     - Create storage bucket `food-images` (public)
     - Copy API credentials to `.env.local`
 4. Get API keys:
-    - Gemini: https://aistudio.google.com/api-keys
-    - Spoonacular: https://spoonacular.com/food-api
+    - DeepSeek: (create an API key in your DeepSeek account)
+    - Kimi/Moonshot: (create an API key in your Moonshot account)
 5. Add keys to `.env.local`
 6. Run development server: `npm run dev`
 7. Open http://localhost:3000
@@ -733,8 +632,7 @@ SPOONACULAR_API_KEY=your_spoonacular_api_key
 - Test PWA installation on real iOS device
 - Verify all API calls work in production
 - Check Supabase RLS policies (none required for MVP since no auth)
-- Monitor Gemini API usage (ensure staying under free tier)
-- Monitor Spoonacular API usage (50 points/day limit)
+- Monitor AI provider usage (cost/limits vary by provider)
 
 
 ## Future Enhancements (Not in MVP)
@@ -763,14 +661,14 @@ SPOONACULAR_API_KEY=your_spoonacular_api_key
 1. **Start with database schema**: Set up Supabase tables and storage first
 2. **Build inventory management**: This is the foundation (add, view, remove items)
 3. **Implement camera/barcode scanning**: Test on actual device early
-4. **Integrate APIs**: Gemini and Spoonacular, with proper error handling
+4. **Integrate APIs**: AI (DeepSeek/Kimi), Open Food Facts, Spoonacular, Nebius
 5. **Build recipe discovery**: Filters and search
 6. **Polish UI/UX**: Make it feel native and fast
 7. **Configure PWA**: Manifest, service worker, iOS testing
 
 ### Critical Technical Decisions
 
-- **Image Processing**: Upload to Supabase Storage first, then send URL to Gemini (not base64, too large)
+- **Image Processing**: Send the captured photo to `POST /api/photo/analyze` (Kimi Vision). Keep image sizes reasonable to avoid timeouts.
 - **API Rate Limits**: Implement client-side caching to minimize API calls
 - **Offline Support**: Cache recent recipes and inventory in IndexedDB via service worker
 - **Camera Library**: Use `react-webcam` or native file input with `capture="environment"`
@@ -779,7 +677,7 @@ SPOONACULAR_API_KEY=your_spoonacular_api_key
 
 ### Common Pitfalls to Avoid
 
-1. **Don't** send large base64 images to Gemini (use URLs)
+1. **Don't** send overly large images (resize/compress if needed)
 2. **Don't** make Spoonacular API calls on every keystroke (debounce or use button trigger)
 3. **Don't** forget iOS safe areas (use `env(safe-area-inset-*)` in CSS)
 4. **Don't** assume camera permission is granted (handle denial gracefully)
@@ -803,8 +701,8 @@ The MVP is considered complete when:
 3. ✅ User can manually add/edit/delete items
 4. ✅ Inventory page displays all items with proper categorization
 5. ✅ Recipe search works with all 3 dropdown filters
-6. ✅ AI ranks recipes and shows health scores + missing ingredients
-7. ✅ Recipe detail page shows full instructions and nutrition
+6. ✅ AI generates recipes with missing ingredients info
+7. ✅ Recipe detail page shows ingredients and steps
 8. ✅ App installs as PWA on iOS
 9. ✅ Camera works in PWA standalone mode
 10. ✅ All API integrations work without authentication errors

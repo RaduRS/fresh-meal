@@ -2,15 +2,8 @@ import "server-only";
 
 import crypto from "node:crypto";
 
-type GeminiGenerateContentResponse = {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-};
+import { chatCompletions } from "@/lib/ai/chat-completions";
+import { getChatProviders } from "@/lib/ai/providers";
 
 type MealType = "breakfast" | "lunch" | "dinner";
 type Who = "adults" | "kids";
@@ -34,12 +27,6 @@ export type AiRecipe = {
   steps: string[];
   imageUrl: string | null;
 };
-
-function getEnv(name: string) {
-  const value = process.env[name];
-  if (!value) return null;
-  return value.trim();
-}
 
 function extractJsonObject(text: string) {
   const cleaned = text
@@ -108,38 +95,42 @@ function normalizeDietLabel(diet: Diet) {
   return diet[0].toUpperCase() + diet.slice(1);
 }
 
-async function generateTextWithGeminiFlash(input: { prompt: string }) {
-  const apiKey = getEnv("GEMINI_API_KEY");
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
-  const model = getEnv("GEMINI_MODEL") ?? "gemini-2.5-flash";
-  if (model !== "gemini-2.5-flash") {
-    throw new Error("Recipes must use gemini-2.5-flash");
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: input.prompt }] }],
-      generationConfig: { temperature: 0.4 },
-    }),
+async function generateTextWithChatProviders(input: { prompt: string }) {
+  const providers = getChatProviders().sort((a, b) => {
+    if (a.provider === b.provider) return 0;
+    if (a.provider === "deepseek") return -1;
+    return 1;
   });
+  if (providers.length === 0) throw new Error("No AI provider configured");
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Gemini error (${res.status}): ${body}`);
+  const system: { role: "system"; content: string } = {
+    role: "system",
+    content:
+      "Return strictly valid JSON. Do not include markdown, backticks, or extra text.",
+  };
+  const user: { role: "user"; content: string } = {
+    role: "user",
+    content: input.prompt,
+  };
+
+  let lastError: unknown = null;
+  for (const p of providers) {
+    try {
+      const out = await chatCompletions({
+        apiKey: p.apiKey,
+        baseUrl: p.baseUrl,
+        model: p.model,
+        messages: [system, user],
+        temperature: 0.4,
+      });
+      return out;
+    } catch (e) {
+      lastError = e;
+    }
   }
 
-  const data = (await res.json()) as GeminiGenerateContentResponse;
-  const text = data.candidates?.[0]?.content?.parts?.find(
-    (p) => typeof p.text === "string"
-  )?.text;
-  if (!text) throw new Error("Gemini returned no text");
-  return text;
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("AI recipe generation failed");
 }
 
 function computeCoveragePercent(pantry: string[], used: string[]) {
@@ -193,13 +184,13 @@ Rules:
 - ingredientsUsed: 4 to 14 items
 - timeMinutes: integer 5-180
 - servings: integer 1-8
-- pantryCoverage: integer 0-100
-- No markdown, no extra keys, no extra text.`;
+  - pantryCoverage: integer 0-100
+  - No markdown, no extra keys, no extra text.`;
 
-  const text = await generateTextWithGeminiFlash({ prompt });
+  const text = await generateTextWithChatProviders({ prompt });
 
   const jsonText = extractJsonObject(text);
-  if (!jsonText) throw new Error("Gemini returned non-JSON output");
+  if (!jsonText) throw new Error("AI provider returned non-JSON output");
 
   const parsed = JSON.parse(jsonText) as unknown;
   const rawRecipes =

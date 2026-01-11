@@ -1,4 +1,4 @@
-import { openAICompatibleChat } from "@/lib/ai/openai-compatible";
+import { chatCompletions } from "@/lib/ai/chat-completions";
 import { getChatProviders } from "@/lib/ai/providers";
 import { normalizeCategory, pantryCategories } from "@/lib/pantry";
 
@@ -54,7 +54,7 @@ export async function enrichPantryItems(inputNames: string[]) {
 
   for (const p of getChatProviders()) {
     try {
-      const out = await openAICompatibleChat({
+      const out = await chatCompletions({
         apiKey: p.apiKey,
         baseUrl: p.baseUrl,
         model: p.model,
@@ -69,7 +69,8 @@ export async function enrichPantryItems(inputNames: string[]) {
       if (!Array.isArray(items) || items.length !== cleaned.length) continue;
 
       const result = items.map((v, idx) => {
-        const obj = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+        const obj =
+          v && typeof v === "object" ? (v as Record<string, unknown>) : null;
         const rawName =
           obj && typeof obj.name === "string" ? sanitizeName(obj.name) : "";
         const rawCategory =
@@ -83,6 +84,8 @@ export async function enrichPantryItems(inputNames: string[]) {
     } catch {}
   }
 
-  return cleaned.map((x) => ({ name: toTitleCase(x), category: "Other" as const }));
+  return cleaned.map((x) => ({
+    name: toTitleCase(x),
+    category: "Other" as const,
+  }));
 }
-

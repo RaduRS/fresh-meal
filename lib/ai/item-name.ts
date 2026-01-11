@@ -1,4 +1,4 @@
-import { openAICompatibleChat } from "@/lib/ai/openai-compatible";
+import { chatCompletions } from "@/lib/ai/chat-completions";
 import { getChatProviders } from "@/lib/ai/providers";
 
 function toTitleCase(input: string) {
@@ -45,7 +45,7 @@ export async function normalizePantryItemName(rawName: string) {
 
   for (const p of getChatProviders()) {
     try {
-      const out = await openAICompatibleChat({
+      const out = await chatCompletions({
         apiKey: p.apiKey,
         baseUrl: p.baseUrl,
         model: p.model,

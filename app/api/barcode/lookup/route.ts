@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { estimateNutritionPer100gFromText } from "@/lib/ai/gemini";
+import { estimateNutritionPer100gFromText } from "@/lib/ai/pantry-vision";
 
 type OFFProductResponse = {
   status: number;

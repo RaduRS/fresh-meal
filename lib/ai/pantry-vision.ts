@@ -1,7 +1,7 @@
-import { openAICompatibleChat } from "@/lib/ai/openai-compatible";
+import { chatCompletions } from "@/lib/ai/chat-completions";
 import { getChatProviders } from "@/lib/ai/providers";
 
-type GeminiDetectedItem = {
+type DetectedItem = {
   name: string;
   quantity: number;
   quantityUnit?: "count" | "g" | "ml";
@@ -15,8 +15,8 @@ type GeminiDetectedItem = {
   confidence: number;
 };
 
-type GeminiDetectedItemsResponse = {
-  items: GeminiDetectedItem[];
+type DetectedItemsResponse = {
+  items: DetectedItem[];
 };
 
 function normalizeBaseUrl(raw: string) {
@@ -109,15 +109,12 @@ Brand: ${JSON.stringify(brand || null)}`;
     content:
       "Return strictly valid JSON. Do not include markdown, backticks, or extra text.",
   };
-  const user: { role: "user"; content: string } = {
-    role: "user",
-    content: prompt,
-  };
+  const user: { role: "user"; content: string } = { role: "user", content: prompt };
 
   let lastError: unknown = null;
   for (const p of providers) {
     try {
-      const out = await openAICompatibleChat({
+      const out = await chatCompletions({
         apiKey: p.apiKey,
         baseUrl: p.baseUrl,
         model: p.model,
@@ -177,13 +174,9 @@ export async function detectPantryItemsFromImage(input: {
 }) {
   const apiKey = getEnv("KIMI_API_KEY");
   const baseUrl =
-    getEnv("KIMI_BASE_URL") ??
-    getEnv("MOONSHOT_BASE_URL") ??
-    "https://api.moonshot.ai/v1";
+    getEnv("KIMI_BASE_URL") ?? getEnv("MOONSHOT_BASE_URL") ?? "https://api.moonshot.ai/v1";
   const model =
-    getEnv("KIMI_VISION_MODEL") ??
-    getEnv("KIMI_MODEL") ??
-    "moonshot-v1-32k-vision-preview";
+    getEnv("KIMI_VISION_MODEL") ?? getEnv("KIMI_MODEL") ?? "moonshot-v1-32k-vision-preview";
   const maxTokensRaw = getEnv("KIMI_VISION_MAX_TOKENS");
   const maxTokens = maxTokensRaw ? Number(maxTokensRaw) : 6000;
   if (!apiKey) throw new Error("Missing KIMI_API_KEY");
@@ -244,19 +237,11 @@ Rules:
                   items: {
                     type: "object",
                     additionalProperties: false,
-                    required: [
-                      "name",
-                      "quantity",
-                      "quantityUnit",
-                      "confidence",
-                    ],
+                    required: ["name", "quantity", "quantityUnit", "confidence"],
                     properties: {
                       name: { type: "string" },
                       quantity: { type: "number" },
-                      quantityUnit: {
-                        type: "string",
-                        enum: ["count", "g", "ml"],
-                      },
+                      quantityUnit: { type: "string", enum: ["count", "g", "ml"] },
                       confidence: { type: "number" },
                     },
                   },
@@ -266,10 +251,7 @@ Rules:
           },
         },
       ],
-      tool_choice: {
-        type: "function",
-        function: { name: "set_detected_items" },
-      },
+      tool_choice: { type: "function", function: { name: "set_detected_items" } },
       max_tokens: Number.isFinite(maxTokens) ? Math.max(500, maxTokens) : 6000,
       temperature: 0,
     }),
@@ -288,46 +270,30 @@ Rules:
     choices?: Array<{
       message?: {
         content?: string;
-        tool_calls?: Array<{
-          function?: { arguments?: string };
-        }>;
+        tool_calls?: Array<{ function?: { arguments?: string } }>;
       };
     }>;
   };
-  const toolArgs =
-    data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  const text =
-    typeof toolArgs === "string"
-      ? toolArgs
-      : data.choices?.[0]?.message?.content;
+  const toolArgs = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+  const text = typeof toolArgs === "string" ? toolArgs : data.choices?.[0]?.message?.content;
 
-  if (!text) {
-    throw new Error("Kimi returned no text");
-  }
+  if (!text) throw new Error("Kimi returned no text");
 
   const jsonText = repairJsonObject(text);
-  if (!jsonText) {
-    throw new Error("Kimi returned non-JSON output");
-  }
+  if (!jsonText) throw new Error("Kimi returned non-JSON output");
 
-  let parsed: GeminiDetectedItemsResponse;
+  let parsed: DetectedItemsResponse;
   try {
-    parsed = JSON.parse(jsonText) as GeminiDetectedItemsResponse;
+    parsed = JSON.parse(jsonText) as DetectedItemsResponse;
   } catch (e) {
-    const message =
-      e instanceof Error ? e.message : "Could not parse model JSON";
+    const message = e instanceof Error ? e.message : "Could not parse model JSON";
     throw new Error(message);
   }
   const items = Array.isArray(parsed.items) ? parsed.items : [];
 
   const deduped = new Map<
     string,
-    {
-      name: string;
-      quantity: number;
-      quantityUnit: "count" | "g" | "ml";
-      confidence: number;
-    }
+    { name: string; quantity: number; quantityUnit: "count" | "g" | "ml"; confidence: number }
   >();
 
   for (const item of items) {
@@ -337,13 +303,9 @@ Rules:
 
     const q = Number(item.quantity);
     const c = Number(item.confidence);
-    const quantity = Number.isFinite(q)
-      ? Math.max(0, Math.round(q * 100) / 100)
-      : 1;
+    const quantity = Number.isFinite(q) ? Math.max(0, Math.round(q * 100) / 100) : 1;
     const unit =
-      item.quantityUnit === "g" ||
-      item.quantityUnit === "ml" ||
-      item.quantityUnit === "count"
+      item.quantityUnit === "g" || item.quantityUnit === "ml" || item.quantityUnit === "count"
         ? item.quantityUnit
         : "count";
     const confidence = Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0.8;
@@ -353,12 +315,7 @@ Rules:
 
     const existing = deduped.get(key);
     if (!existing) {
-      deduped.set(key, {
-        name,
-        quantity,
-        quantityUnit: unit,
-        confidence,
-      });
+      deduped.set(key, { name, quantity, quantityUnit: unit, confidence });
       continue;
     }
 
@@ -366,10 +323,10 @@ Rules:
       existing.quantityUnit === "count" && unit !== "count"
         ? unit
         : unit === "count" && existing.quantityUnit !== "count"
-        ? existing.quantityUnit
-        : existing.confidence >= confidence
-        ? existing.quantityUnit
-        : unit;
+          ? existing.quantityUnit
+          : existing.confidence >= confidence
+            ? existing.quantityUnit
+            : unit;
 
     deduped.set(key, {
       name: existing.name.length >= name.length ? existing.name : name,
@@ -381,3 +338,4 @@ Rules:
 
   return { items: Array.from(deduped.values()) };
 }
+

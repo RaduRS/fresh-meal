@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 
-import { estimateNutritionPer100gFromText } from "@/lib/ai/gemini";
+import { estimateNutritionPer100gFromText } from "@/lib/ai/pantry-vision";
 
 export const runtime = "nodejs";
 
-function readBody(data: unknown): { name: string; brand: string | null } | null {
+function readBody(
+  data: unknown
+): { name: string; brand: string | null } | null {
   if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
   const name = typeof obj.name === "string" ? obj.name.trim() : "";
   const brand =
-    typeof obj.brand === "string" ? obj.brand.trim() : obj.brand === null ? null : null;
+    typeof obj.brand === "string"
+      ? obj.brand.trim()
+      : obj.brand === null
+      ? null
+      : null;
   if (!name) return null;
   return { name, brand };
 }
@@ -34,4 +40,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

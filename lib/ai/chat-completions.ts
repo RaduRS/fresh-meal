@@ -18,7 +18,7 @@ function toV1BaseUrl(baseUrl: string) {
   return `${normalized}/v1`;
 }
 
-export async function openAICompatibleChat(params: {
+export async function chatCompletions(params: {
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -42,9 +42,7 @@ export async function openAICompatibleChat(params: {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
-      `LLM request failed (${response.status}): ${text.slice(0, 300)}`,
-    );
+    throw new Error(`LLM request failed (${response.status}): ${text.slice(0, 300)}`);
   }
 
   const data = (await response.json()) as {
@@ -55,3 +53,4 @@ export async function openAICompatibleChat(params: {
   if (!content) throw new Error("LLM response missing content");
   return content;
 }
+
