@@ -289,6 +289,7 @@ Task:
 - ingredientAmountsG.quantityUnit must match the pantry item's quantityUnit (count, g, or ml).
 - ingredientAmountsG.quantity must be <= the pantry item's quantity.
 - Always provide quantity and quantityUnit for each ingredient.
+- If quantityUnit is "count", amountG must be consistent with quantity: amountG/quantity must be a realistic per-unit weight.
 
 Return ONLY valid JSON with this exact shape:
 {"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":90,"missingIngredients":["..."],"ingredientsUsed":["..."],"ingredientAmountsG":[{"name":"...","amountG":123,"quantity":2,"quantityUnit":"count"}],"steps":["..."]}]}
@@ -362,6 +363,11 @@ Rules:
           break;
         }
         if (a.quantity > available.quantity) {
+          withinLimits = false;
+          break;
+        }
+        const perUnit = a.amountG / a.quantity;
+        if (!Number.isFinite(perUnit) || perUnit < 10 || perUnit > 300) {
           withinLimits = false;
           break;
         }

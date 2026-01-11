@@ -362,14 +362,17 @@ export async function POST(req: Request) {
           )
           .slice(0, 14);
 
-        const ingredientsUsedDetailed = ingredientsUsed.map((name) => ({
-          name,
-          imageUrl: pickPantryImageUrl(name, pantry),
-          amountG: amountsByKey.get(canonicalize(name))?.amountG ?? null,
-          quantity: amountsByKey.get(canonicalize(name))?.quantity ?? null,
-          quantityUnit:
-            amountsByKey.get(canonicalize(name))?.quantityUnit ?? null,
-        }));
+        const ingredientsUsedDetailed = ingredientsUsed.map((name) => {
+          const k = canonicalize(name);
+          const entry = k ? amountsByKey.get(k) : null;
+          return {
+            name,
+            imageUrl: pickPantryImageUrl(name, pantry),
+            amountG: typeof entry?.amountG === "number" ? entry.amountG : null,
+            quantity: entry?.quantity ?? null,
+            quantityUnit: entry?.quantityUnit ?? null,
+          };
+        });
         const macrosPerServing = computeRecipeMacrosPerServing({
           servings: r.servings,
           ingredientAmountsG: ingredientAmountsG.map((a) => ({
