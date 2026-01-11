@@ -198,9 +198,9 @@ Three consecutive dropdowns on recipe discovery screen:
 3. **Servings** (required)
     - Options: 1, 2, 3, 4+
     - Default: 2
-4. **Dietary Preference** (optional, saved in app settings)
+4. **Dietary Preference** (optional, stored locally)
     - Options: None, Vegetarian, Vegan, Gluten-Free, Dairy-Free, Low-Carb
-    - Set once in Settings, persists across sessions
+    - Saved in localStorage and reused as default
 
 **CTA Button:** "Find Recipes" (large, primary color)
 
@@ -288,16 +288,6 @@ Each recipe card shows:
 - Use `viewport-fit=cover` in meta tag
 
 
-### 4. Settings (Optional for MVP)
-
-Simple settings page with:
-
-- **Dietary Preference** (dropdown, saved to localStorage or Supabase user_settings table)
-- **Health Goals** (text area, used in AI prompts)
-- **Clear All Inventory** button (with confirmation dialog)
-- **About/Help** section
-
-
 ## Database Schema
 
 ### Supabase Tables
@@ -323,27 +313,17 @@ CREATE INDEX idx_pantry_items_category ON pantry_items(category);
 ```
 
 
-#### `user_settings` (Optional for MVP)
-
-```sql
-CREATE TABLE user_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  dietary_preference TEXT, -- None, Vegetarian, Vegan, Gluten-Free, Dairy-Free, Low-Carb
-  health_goals TEXT, -- Free-form text
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-
 ### Supabase Storage Buckets
 
-#### `food-images`
+#### `pantry-images` (generated)
 
-- Store photos taken by users
+- Store generated pantry item images (Nebius)
 - Public read access
-- File naming: `{timestamp}_{uuid}.jpg`
-- Max file size: 5MB
+
+#### `recipe-images` (generated)
+
+- Store generated recipe images (Nebius)
+- Public read access
 
 
 ## Component Structure
@@ -355,15 +335,19 @@ app/
 ├── layout.tsx (root layout, includes PWA meta tags)
 ├── page.tsx (home/dashboard - redirects to /inventory)
 ├── inventory/
-│   └── page.tsx (main inventory view)
+│   ├── page.tsx
+│   ├── inventory-client.tsx
+│   └── actions.ts
 ├── add-item/
-│   └── page.tsx (barcode/photo/manual add with confirmation)
+│   ├── barcode/
+│   ├── manual/
+│   └── photo/
 ├── recipes/
 │   ├── page.tsx (recipe discovery with filters)
+│   ├── recipes-client.tsx
 │   └── [id]/
-│       └── page.tsx (individual recipe detail)
-└── settings/
-    └── page.tsx (optional for MVP)
+│       ├── page.tsx
+│       └── recipe-detail-client.tsx
 ```
 
 
@@ -371,29 +355,9 @@ app/
 
 ```
 components/
-├── ui/ (shadcn components: button, card, dialog, dropdown, etc.)
-├── layout/
-│   ├── Header.tsx (app header with title, back button)
-│   ├── BottomNav.tsx (mobile navigation: Inventory, Recipes, Settings)
-│   └── Container.tsx (responsive container wrapper)
-├── inventory/
-│   ├── InventoryGrid.tsx (displays pantry items)
-│   ├── ItemCard.tsx (individual pantry item)
-│   ├── AddItemButton.tsx (floating + button)
-│   ├── AddItemSheet.tsx (bottom sheet with add options)
-│   └── ConfirmItemsDialog.tsx (confirms AI-detected items)
-├── camera/
-│   ├── CameraCapture.tsx (camera interface with capture button)
-│   └── BarcodeScanner.tsx (barcode scanning logic)
-├── recipes/
-│   ├── RecipeFilters.tsx (meal type, servings, dietary dropdowns)
-│   ├── RecipeCard.tsx (recipe preview card)
-│   ├── RecipeList.tsx (list of recipe cards)
-│   └── RecipeDetail.tsx (full recipe view)
-└── shared/
-    ├── LoadingSpinner.tsx
-    ├── EmptyState.tsx
-    └── ErrorBoundary.tsx
+├── ui/ (small UI primitives)
+└── layout/
+    └── add-item-bottom-bar.tsx
 ```
 
 
@@ -416,41 +380,10 @@ Text generation uses the provider list returned by `lib/ai/providers.ts`:
 - DeepSeek is preferred when `DEEPSEEK_API_KEY` is set.
 - Kimi is used as a fallback (or primary if DeepSeek isn’t configured).
 
-### Spoonacular API
 ### Open Food Facts API
 
-#### Setup
-
-```typescript
-// lib/openfoodfacts.ts
-export async function getProductByBarcode(barcode: string) {
-  const response = await fetch(
-    `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
-  );
-  
-  if (!response.ok) throw new Error("Product not found");
-  
-  const data = await response.json();
-  
-  if (data.status !== 1) {
-    throw new Error("Product not found in database");
-  }
-  
-  return {
-    name: data.product.product_name || "Unknown Product",
-    category: data.product.categories?.split(",") || "Other",
-    image: data.product.image_url,
-    barcode: barcode,
-    brands: data.product.brands,
-    nutrition: {
-      calories: data.product.nutriments?.energy_value,
-      protein: data.product.nutriments?.proteins,
-      carbs: data.product.nutriments?.carbohydrates,
-      fat: data.product.nutriments?.fat
-    }
-  };
-}
-```
+Used by `GET /api/barcode/lookup?barcode=...` to fetch product metadata and nutriments when available:
+`https://world.openfoodfacts.org/api/v0/product/{barcode}.json`
 
 
 ## User Flows (Detailed)
@@ -536,7 +469,7 @@ export async function getProductByBarcode(barcode: string) {
 - Display user-friendly error messages (toast notifications)
 - Log errors to console in development
 - Implement retry logic for network failures
-- Graceful degradation (e.g., if AI fails, still show Spoonacular results)
+- Graceful degradation (e.g., if AI fails, allow manual entry / retries)
 
 
 ### Performance
@@ -570,7 +503,9 @@ Create `.env.local`:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SECRET_KEY=your_supabase_service_role_key
+NEXT_PUBLIC_SUPABASE_IMAGES_BUCKET=pantry-images
+NEXT_PUBLIC_SUPABASE_RECIPE_IMAGES_BUCKET=recipe-images
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
@@ -579,6 +514,8 @@ KIMI_BASE_URL=https://api.moonshot.ai/v1
 KIMI_MODEL=kimi-k2-0905-preview
 KIMI_VISION_MODEL=moonshot-v1-32k-vision-preview
 KIMI_VISION_MAX_TOKENS=6000
+NEBIUS_API_KEY=your_nebius_api_key
+NEBIUS_MODEL=black-forest-labs/flux-schnell
 ```
 
 
@@ -600,7 +537,7 @@ KIMI_VISION_MAX_TOKENS=6000
 3. Set up Supabase:
     - Create new project
     - Run SQL migrations from Database Schema section
-    - Create storage bucket `food-images` (public)
+    - Create storage buckets `pantry-images` and `recipe-images` (public)
     - Copy API credentials to `.env.local`
 4. Get API keys:
     - DeepSeek: (create an API key in your DeepSeek account)
@@ -661,7 +598,7 @@ KIMI_VISION_MAX_TOKENS=6000
 1. **Start with database schema**: Set up Supabase tables and storage first
 2. **Build inventory management**: This is the foundation (add, view, remove items)
 3. **Implement camera/barcode scanning**: Test on actual device early
-4. **Integrate APIs**: AI (DeepSeek/Kimi), Open Food Facts, Spoonacular, Nebius
+4. **Integrate APIs**: AI (DeepSeek/Kimi), Open Food Facts, Nebius
 5. **Build recipe discovery**: Filters and search
 6. **Polish UI/UX**: Make it feel native and fast
 7. **Configure PWA**: Manifest, service worker, iOS testing
@@ -678,7 +615,7 @@ KIMI_VISION_MAX_TOKENS=6000
 ### Common Pitfalls to Avoid
 
 1. **Don't** send overly large images (resize/compress if needed)
-2. **Don't** make Spoonacular API calls on every keystroke (debounce or use button trigger)
+2. **Don't** trigger AI calls on every keystroke (debounce or use button trigger)
 3. **Don't** forget iOS safe areas (use `env(safe-area-inset-*)` in CSS)
 4. **Don't** assume camera permission is granted (handle denial gracefully)
 5. **Don't** hardcode API keys (use environment variables)
