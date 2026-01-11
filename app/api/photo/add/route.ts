@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 
 import { normalizePantryItemName } from "@/lib/ai/item-name";
 import { suggestPantryCategory } from "@/lib/ai/category";
+import { enrichPantryItems } from "@/lib/ai/pantry-enrich";
 import { insertPantryItem } from "@/lib/pantry";
 
 type AddItemInput = {
@@ -154,6 +155,29 @@ function readItems(data: unknown): AddItemInput[] | null {
   return items.slice(0, 50);
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+) {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+
+  const workers = new Array(Math.min(limit, items.length))
+    .fill(null)
+    .map(async () => {
+      while (true) {
+        const index = i;
+        i += 1;
+        if (index >= items.length) return;
+        out[index] = await fn(items[index], index);
+      }
+    });
+
+  await Promise.all(workers);
+  return out;
+}
+
 export async function POST(req: Request) {
   try {
     const data = (await req.json()) as unknown;
@@ -162,7 +186,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No items to add." }, { status: 400 });
     }
 
-    let added = 0;
     for (const item of items) {
       const nutritionPer100g = requireNutritionPer100g(item.nutritionPer100g);
       if (!nutritionPer100g) {
@@ -171,10 +194,23 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
+    }
 
-      const name = await normalizePantryItemName(item.name);
-      if (!name) continue;
-      const category = await suggestPantryCategory(name);
+    const enriched = await enrichPantryItems(items.map((i) => i.name));
+
+    const inserted = await mapWithConcurrency(items, 6, async (item, idx) => {
+      const nutritionPer100g = requireNutritionPer100g(item.nutritionPer100g);
+      if (!nutritionPer100g) return null;
+
+      const name = enriched[idx]?.name
+        ? await normalizePantryItemName(enriched[idx].name)
+        : await normalizePantryItemName(item.name);
+      if (!name) return null;
+
+      const category = enriched[idx]?.category
+        ? enriched[idx].category
+        : await suggestPantryCategory(name);
+
       const id = await insertPantryItem({
         name,
         category,
@@ -186,9 +222,11 @@ export async function POST(req: Request) {
         fatG100g: nutritionPer100g.fatG,
         sugarG100g: nutritionPer100g.sugarG,
       });
-      void id;
-      added += 1;
-    }
+
+      return id || null;
+    });
+
+    const added = inserted.filter(Boolean).length;
 
     revalidatePath("/inventory");
     return NextResponse.json({ ok: true, added });
