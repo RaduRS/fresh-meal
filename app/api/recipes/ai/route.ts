@@ -278,30 +278,104 @@ export async function POST(req: Request) {
           description: r.description,
         }).catch(() => null);
 
-        const amountMap = new Map<string, number>();
+        const amountsByKey = new Map<
+          string,
+          {
+            amountG: number;
+            quantity: number | null;
+            quantityUnit: "count" | "g" | "ml" | null;
+          }
+        >();
         for (const a of r.ingredientAmountsG) {
           const k = canonicalize(a.name);
           if (!k) continue;
+          if (!displayNameForKey.has(k)) continue;
           const v = Number(a.amountG);
           if (!Number.isFinite(v) || v <= 0) continue;
-          amountMap.set(k, (amountMap.get(k) ?? 0) + v);
+          const existing = amountsByKey.get(k);
+          const nextAmountG = (existing?.amountG ?? 0) + v;
+          const quantityRaw =
+            typeof a.quantity === "number" ? a.quantity : null;
+          const quantity =
+            typeof quantityRaw === "number" &&
+            Number.isFinite(quantityRaw) &&
+            quantityRaw > 0
+              ? quantityRaw
+              : null;
+          const quantityUnit =
+            a.quantityUnit === "count" ||
+            a.quantityUnit === "g" ||
+            a.quantityUnit === "ml"
+              ? a.quantityUnit
+              : null;
+
+          if (!existing) {
+            amountsByKey.set(k, {
+              amountG: nextAmountG,
+              quantity,
+              quantityUnit,
+            });
+            continue;
+          }
+
+          const mergedUnit =
+            existing.quantityUnit && quantityUnit
+              ? existing.quantityUnit === quantityUnit
+                ? existing.quantityUnit
+                : null
+              : existing.quantityUnit ?? quantityUnit;
+          const mergedQuantity =
+            typeof existing.quantity === "number" &&
+            typeof quantity === "number" &&
+            mergedUnit
+              ? existing.quantity + quantity
+              : existing.quantity ?? quantity;
+          amountsByKey.set(k, {
+            amountG: nextAmountG,
+            quantity: mergedQuantity,
+            quantityUnit: mergedUnit,
+          });
         }
-        const ingredientAmountsG = Array.from(amountMap.entries())
-          .map(([k, amountG]) => ({
-            name: displayNameForKey.get(k) ?? k,
-            amountG: Math.round(amountG),
-          }))
-          .filter((x) => x.amountG > 0)
+        const ingredientAmountsG = ingredientsUsed
+          .map((name) => {
+            const k = canonicalize(name);
+            const entry = k ? amountsByKey.get(k) : null;
+            if (!entry) return null;
+            const amountG = Math.round(entry.amountG);
+            if (amountG <= 0) return null;
+            return {
+              name,
+              amountG,
+              quantity: entry.quantity,
+              quantityUnit: entry.quantityUnit,
+            };
+          })
+          .filter(
+            (
+              x
+            ): x is {
+              name: string;
+              amountG: number;
+              quantity: number | null;
+              quantityUnit: "count" | "g" | "ml" | null;
+            } => x !== null
+          )
           .slice(0, 14);
 
         const ingredientsUsedDetailed = ingredientsUsed.map((name) => ({
           name,
           imageUrl: pickPantryImageUrl(name, pantry),
-          amountG: amountMap.get(canonicalize(name)) ?? null,
+          amountG: amountsByKey.get(canonicalize(name))?.amountG ?? null,
+          quantity: amountsByKey.get(canonicalize(name))?.quantity ?? null,
+          quantityUnit:
+            amountsByKey.get(canonicalize(name))?.quantityUnit ?? null,
         }));
         const macrosPerServing = computeRecipeMacrosPerServing({
           servings: r.servings,
-          ingredientAmountsG,
+          ingredientAmountsG: ingredientAmountsG.map((a) => ({
+            name: a.name,
+            amountG: a.amountG,
+          })),
           pantry,
         });
         return {

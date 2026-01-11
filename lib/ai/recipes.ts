@@ -26,6 +26,8 @@ export type RecipeMacros = {
 export type RecipeIngredientAmount = {
   name: string;
   amountG: number;
+  quantity: number | null;
+  quantityUnit: "count" | "g" | "ml" | null;
 };
 
 export type AiRecipe = {
@@ -111,8 +113,20 @@ function readIngredientAmounts(v: unknown): RecipeIngredientAmount[] {
       Number.isFinite(amountGRaw) && amountGRaw > 0
         ? Math.min(5000, Math.round(amountGRaw))
         : 0;
+    const quantityRaw = Number(obj.quantity);
+    const quantity =
+      Number.isFinite(quantityRaw) && quantityRaw > 0
+        ? Math.min(9999, quantityRaw)
+        : null;
+    const quantityUnitRaw = cleanString(obj.quantityUnit);
+    const quantityUnit =
+      quantityUnitRaw === "count" ||
+      quantityUnitRaw === "g" ||
+      quantityUnitRaw === "ml"
+        ? (quantityUnitRaw as "count" | "g" | "ml")
+        : null;
     if (!name || amountG <= 0) continue;
-    out.push({ name, amountG });
+    out.push({ name, amountG, quantity, quantityUnit });
     if (out.length >= 14) break;
   }
   return out;
@@ -223,6 +237,25 @@ export async function generateRecipesFromPantry(input: {
     .slice(0, 120);
 
   const pantryNames = pantry.map((p) => p.name);
+  const availableByKey = new Map<
+    string,
+    { quantity: number; unit: "count" | "g" | "ml" }
+  >();
+  for (const p of pantry) {
+    const key = canonicalize(p.name);
+    if (!key) continue;
+    const unit = p.quantityUnit;
+    const qty = Number(p.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const existing = availableByKey.get(key);
+    if (!existing) {
+      availableByKey.set(key, { quantity: qty, unit });
+      continue;
+    }
+    if (existing.unit === unit) {
+      availableByKey.set(key, { quantity: existing.quantity + qty, unit });
+    }
+  }
 
   const prompt = `You are a friendly chef for a mobile pantry app.
 
@@ -251,9 +284,13 @@ Task:
 - Include ingredientAmountsG: for each ingredient in ingredientsUsed, estimate grams used in the whole recipe.
 - Use grams for everything, including liquids (convert to grams).
 - ingredientAmountsG.name must match an item in ingredientsUsed.
+- Respect pantry quantities: do not use more than the available quantity for each pantry item.
+- ingredientAmountsG.quantityUnit must match the pantry item's quantityUnit (count, g, or ml).
+- ingredientAmountsG.quantity must be <= the pantry item's quantity.
+- Always provide quantity and quantityUnit for each ingredient.
 
 Return ONLY valid JSON with this exact shape:
-{"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":90,"missingIngredients":["..."],"ingredientsUsed":["..."],"ingredientAmountsG":[{"name":"...","amountG":123}],"steps":["..."]}]}
+{"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":90,"missingIngredients":["..."],"ingredientsUsed":["..."],"ingredientAmountsG":[{"name":"...","amountG":123,"quantity":2,"quantityUnit":"count"}],"steps":["..."]}]}
 
 Rules:
 - steps: 5 to 10 steps
@@ -312,6 +349,31 @@ Rules:
       timeMinutes > input.maxTimeMinutes
     )
       continue;
+    let withinLimits = true;
+    for (const a of ingredientAmountsG) {
+      const key = canonicalize(a.name);
+      if (!key) continue;
+      const available = availableByKey.get(key);
+      if (!available) continue;
+      if (available.unit === "count") {
+        if (a.quantityUnit !== "count" || typeof a.quantity !== "number") {
+          withinLimits = false;
+          break;
+        }
+        if (a.quantity > available.quantity) {
+          withinLimits = false;
+          break;
+        }
+        continue;
+      }
+      if (typeof a.amountG !== "number" || !Number.isFinite(a.amountG))
+        continue;
+      if (a.amountG > available.quantity) {
+        withinLimits = false;
+        break;
+      }
+    }
+    if (!withinLimits) continue;
 
     const id = makeId(`${title}|${ingredientsUsed.join("|")}`);
     const recipe: AiRecipe = {

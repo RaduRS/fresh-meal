@@ -19,6 +19,9 @@ type Recipe = {
   ingredientsUsedDetailed?: Array<{
     name: string;
     imageUrl: string | null;
+    amountG?: number | null;
+    quantity?: number | null;
+    quantityUnit?: "count" | "g" | "ml" | null;
   }>;
   steps: string[];
   imageUrl: string | null;
@@ -128,7 +131,21 @@ export function RecipeDetailClient(props: { id: string }) {
                     />
                   </div>
                 ) : null}
-                <div className="text-sm">{i.name}</div>
+                <div className="min-w-0 flex-1 text-sm">{i.name}</div>
+                {typeof i.quantity === "number" &&
+                Number.isFinite(i.quantity) &&
+                i.quantityUnit ? (
+                  <div className="shrink-0 text-xs text-muted-foreground">
+                    {i.quantityUnit === "count"
+                      ? `${Math.round(i.quantity)} ${i.name}`
+                      : `${Math.round(i.quantity)} ${i.quantityUnit}`}
+                  </div>
+                ) : typeof i.amountG === "number" &&
+                  Number.isFinite(i.amountG) ? (
+                  <div className="shrink-0 text-xs text-muted-foreground">
+                    {Math.round(i.amountG)} g
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

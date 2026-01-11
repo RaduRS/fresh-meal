@@ -32,6 +32,9 @@ type Recipe = {
   ingredientsUsedDetailed?: Array<{
     name: string;
     imageUrl: string | null;
+    amountG?: number | null;
+    quantity?: number | null;
+    quantityUnit?: "count" | "g" | "ml" | null;
   }>;
   steps: string[];
   imageUrl: string | null;
