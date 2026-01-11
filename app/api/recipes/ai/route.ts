@@ -32,6 +32,20 @@ function canonicalize(s: string) {
     .trim();
 }
 
+function uniqueStringsByCanonical(input: string[], max: number) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const s of input) {
+    const key = canonicalize(s);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function pickPantryImageUrl(
   ingredientName: string,
   pantry: Array<{ name: string; image_url: string | null }>
@@ -240,30 +254,54 @@ export async function POST(req: Request) {
 
     const withImages = await Promise.all(
       recipes.map(async (r) => {
+        const ingredientsUsed = uniqueStringsByCanonical(r.ingredientsUsed, 14);
+        const displayNameForKey = new Map<string, string>();
+        for (const name of ingredientsUsed) {
+          const key = canonicalize(name);
+          if (!key) continue;
+          displayNameForKey.set(key, name);
+        }
+
         const imageUrl = await ensureRecipeImage({
           id: r.id,
           title: r.title,
           description: r.description,
         }).catch(() => null);
+
         const amountMap = new Map<string, number>();
         for (const a of r.ingredientAmountsG) {
           const k = canonicalize(a.name);
           if (!k) continue;
           const v = Number(a.amountG);
           if (!Number.isFinite(v) || v <= 0) continue;
-          amountMap.set(k, v);
+          amountMap.set(k, (amountMap.get(k) ?? 0) + v);
         }
-        const ingredientsUsedDetailed = r.ingredientsUsed.map((name) => ({
+        const ingredientAmountsG = Array.from(amountMap.entries())
+          .map(([k, amountG]) => ({
+            name: displayNameForKey.get(k) ?? k,
+            amountG: Math.round(amountG),
+          }))
+          .filter((x) => x.amountG > 0)
+          .slice(0, 14);
+
+        const ingredientsUsedDetailed = ingredientsUsed.map((name) => ({
           name,
           imageUrl: pickPantryImageUrl(name, pantry),
           amountG: amountMap.get(canonicalize(name)) ?? null,
         }));
         const macrosPerServing = computeRecipeMacrosPerServing({
           servings: r.servings,
-          ingredientAmountsG: r.ingredientAmountsG,
+          ingredientAmountsG,
           pantry,
         });
-        return { ...r, imageUrl, ingredientsUsedDetailed, macrosPerServing };
+        return {
+          ...r,
+          ingredientsUsed,
+          ingredientAmountsG,
+          imageUrl,
+          ingredientsUsedDetailed,
+          macrosPerServing,
+        };
       })
     );
 

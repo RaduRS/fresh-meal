@@ -241,6 +241,8 @@ Task:
 - Avoid brand names in ingredient lists; use generic ingredient terms.
 - Prefer dinner-friendly options if meal type is dinner.
 - Keep steps short and actionable (mobile friendly).
+- Recipes can be cooked OR no-cook "assemble and serve" meals (e.g., toast + milk + fruit or similar combinations).
+- For breakfast, include at least 1 no-cook/low-prep option if possible.
 - Include ingredientAmountsG: for each ingredient in ingredientsUsed, estimate grams used in the whole recipe.
 - Use grams for everything, including liquids (convert to grams).
 - ingredientAmountsG.name must match an item in ingredientsUsed.
