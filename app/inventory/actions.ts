@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { suggestPantryCategory } from "@/lib/ai/category";
-import { normalizePantryItemName } from "@/lib/ai/item-name";
-import { insertPantryItem, softDeletePantryItem } from "@/lib/pantry";
+import {
+  insertPantryItem,
+  normalizeCategory,
+  softDeletePantryItem,
+} from "@/lib/pantry";
 import { deletePantryItemImage } from "@/lib/pantry-images";
 import { updatePantryItem } from "@/lib/pantry";
 
@@ -39,6 +41,7 @@ function parseRequiredNumber(value: FormDataEntryValue | null) {
 export async function addPantryItemAction(formData: FormData) {
   const id = String(formData.get("id") ?? "").trim();
   const rawName = String(formData.get("name") ?? "").trim();
+  const existingCategory = String(formData.get("category") ?? "").trim();
   const quantity = parseQuantity(String(formData.get("quantity") ?? "1"));
   const quantityUnit = parseUnit(
     String(formData.get("quantityUnit") ?? "count")
@@ -53,10 +56,9 @@ export async function addPantryItemAction(formData: FormData) {
 
   if (!rawName) return;
 
-  const name = await normalizePantryItemName(rawName);
+  const name = rawName.trim().replace(/\s+/g, " ").slice(0, 80);
   if (!name) return;
-
-  const category = await suggestPantryCategory(name);
+  const category = id ? normalizeCategory(existingCategory) : "Other";
 
   if (id) {
     await updatePantryItem({

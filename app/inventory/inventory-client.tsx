@@ -121,16 +121,31 @@ export function InventoryClient(props: {
     dx: number;
     startOffset: number;
   } | null>(null);
+  const [lazyEnriched, setLazyEnriched] = useState<
+    Record<string, { name: string; category: string }>
+  >({});
+  const lazyEnrichInFlightRef = useRef(new Set<string>());
+  const lazyEnrichQueuedRef = useRef(new Set<string>());
+  const lazyEnrichAttemptedRef = useRef(new Set<string>());
+  const lazyEnrichQueueRef = useRef<string[]>([]);
+  const lazyEnrichQueueCursorRef = useRef(0);
+  const lazyEnrichRunnerActiveRef = useRef(false);
 
   const itemsWithImages = useMemo(() => {
-    if (Object.keys(lazyImageUrls).length === 0) return props.items;
+    const hasImg = Object.keys(lazyImageUrls).length > 0;
+    const hasEnrich = Object.keys(lazyEnriched).length > 0;
+    if (!hasImg && !hasEnrich) return props.items;
     return props.items.map((item) => {
-      if (item.image_url) return item;
-      const url = lazyImageUrls[item.id];
-      if (!url) return item;
-      return { ...item, image_url: url };
+      const enriched = lazyEnriched[item.id];
+      const nextBase = enriched
+        ? { ...item, name: enriched.name, category: enriched.category }
+        : item;
+      if (nextBase.image_url) return nextBase;
+      const url = lazyImageUrls[nextBase.id];
+      if (!url) return nextBase;
+      return { ...nextBase, image_url: url };
     });
-  }, [lazyImageUrls, props.items]);
+  }, [lazyImageUrls, lazyEnriched, props.items]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -202,6 +217,79 @@ export function InventoryClient(props: {
       }
     });
   }, [itemsWithImages, lazyImageUrls]);
+
+  useEffect(() => {
+    for (const item of props.items) {
+      if (item.category !== "Other") continue;
+      if (lazyEnriched[item.id]) continue;
+      if (lazyEnrichInFlightRef.current.has(item.id)) continue;
+      if (lazyEnrichQueuedRef.current.has(item.id)) continue;
+      if (lazyEnrichAttemptedRef.current.has(item.id)) continue;
+      lazyEnrichQueuedRef.current.add(item.id);
+      lazyEnrichAttemptedRef.current.add(item.id);
+      lazyEnrichQueueRef.current.push(item.id);
+    }
+
+    if (lazyEnrichRunnerActiveRef.current) return;
+    if (lazyEnrichQueueCursorRef.current >= lazyEnrichQueueRef.current.length)
+      return;
+
+    lazyEnrichRunnerActiveRef.current = true;
+    const concurrency = 2;
+
+    const worker = async () => {
+      while (mountedRef.current) {
+        const index = lazyEnrichQueueCursorRef.current;
+        lazyEnrichQueueCursorRef.current += 1;
+        if (index >= lazyEnrichQueueRef.current.length) return;
+
+        const id = lazyEnrichQueueRef.current[index];
+        lazyEnrichInFlightRef.current.add(id);
+        try {
+          const res = await fetch("/api/pantry/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          const data = (await res.json().catch(() => null)) as unknown;
+          const payload =
+            data && typeof data === "object" && "ok" in data
+              ? (data as { ok?: unknown; name?: unknown; category?: unknown })
+              : null;
+          const name =
+            payload && typeof payload.name === "string" ? payload.name : null;
+          const category =
+            payload && typeof payload.category === "string"
+              ? payload.category
+              : null;
+          if (mountedRef.current && name && category) {
+            setLazyEnriched((prev) => {
+              if (prev[id]) return prev;
+              return { ...prev, [id]: { name, category } };
+            });
+          }
+        } catch {
+        } finally {
+          lazyEnrichInFlightRef.current.delete(id);
+          lazyEnrichQueuedRef.current.delete(id);
+        }
+      }
+    };
+
+    void Promise.all(
+      new Array(concurrency).fill(null).map(() => worker())
+    ).finally(() => {
+      lazyEnrichRunnerActiveRef.current = false;
+      if (
+        lazyEnrichQueueCursorRef.current >= lazyEnrichQueueRef.current.length &&
+        lazyEnrichInFlightRef.current.size === 0
+      ) {
+        lazyEnrichQueueRef.current = [];
+        lazyEnrichQueueCursorRef.current = 0;
+        lazyEnrichQueuedRef.current.clear();
+      }
+    });
+  }, [props.items, lazyEnriched]);
 
   const categories = useMemo(() => {
     const set = new Set(itemsWithImages.map((i) => i.category).filter(Boolean));
@@ -298,6 +386,11 @@ export function InventoryClient(props: {
           {filtered.map((item) => {
             const macroValues = macroChips(item);
             const isOpen = openId === item.id;
+            const isEnrichmentPending =
+              item.category === "Other" && !lazyEnriched[item.id];
+            const categoryLabel = isEnrichmentPending
+              ? "Updating…"
+              : item.category;
             const currentTranslateX =
               drag?.id === item.id
                 ? clamp(drag.startOffset + drag.dx, -actionRevealPx, 0)
@@ -391,8 +484,14 @@ export function InventoryClient(props: {
                           {item.name}
                         </div>
                         <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
-                          <span className="max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground">
-                            {item.category}
+                          <span
+                            className={`max-w-56 truncate rounded-full bg-secondary px-2 py-0.5 text-[11px] text-secondary-foreground ${
+                              isEnrichmentPending
+                                ? "animate-pulse opacity-70"
+                                : ""
+                            }`}
+                          >
+                            {categoryLabel}
                           </span>
                           <span className="whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
                             {item.quantity_unit === "count"

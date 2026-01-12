@@ -169,6 +169,24 @@ export async function updatePantryItem(input: {
   if (error) throw error;
 }
 
+export async function updatePantryItemNameAndCategory(input: {
+  id: string;
+  name: string;
+  category: PantryCategory;
+}) {
+  const supabase = createSupabaseAdminClient();
+  const { error } = await supabase
+    .from("pantry_items")
+    .update({
+      name: input.name,
+      category: input.category,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) throw error;
+}
+
 export async function softDeletePantryItem(id: string) {
   const supabase = createSupabaseAdminClient();
   const { error } = await supabase

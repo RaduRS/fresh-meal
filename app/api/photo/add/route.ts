@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 
-import { normalizePantryItemName } from "@/lib/ai/item-name";
-import { suggestPantryCategory } from "@/lib/ai/category";
-import { enrichPantryItems } from "@/lib/ai/pantry-enrich";
 import { insertPantryItem } from "@/lib/pantry";
 
 type AddItemInput = {
@@ -196,24 +193,16 @@ export async function POST(req: Request) {
       }
     }
 
-    const enriched = await enrichPantryItems(items.map((i) => i.name));
-
-    const inserted = await mapWithConcurrency(items, 6, async (item, idx) => {
+    const inserted = await mapWithConcurrency(items, 6, async (item) => {
       const nutritionPer100g = requireNutritionPer100g(item.nutritionPer100g);
       if (!nutritionPer100g) return null;
 
-      const name = enriched[idx]?.name
-        ? await normalizePantryItemName(enriched[idx].name)
-        : await normalizePantryItemName(item.name);
+      const name = item.name.trim().replace(/\s+/g, " ").slice(0, 80);
       if (!name) return null;
-
-      const category = enriched[idx]?.category
-        ? enriched[idx].category
-        : await suggestPantryCategory(name);
 
       const id = await insertPantryItem({
         name,
-        category,
+        category: "Other",
         quantity: item.quantity,
         quantityUnit: item.quantityUnit,
         caloriesKcal100g: nutritionPer100g.caloriesKcal,
@@ -227,9 +216,10 @@ export async function POST(req: Request) {
     });
 
     const added = inserted.filter(Boolean).length;
+    const ids = inserted.filter(Boolean) as string[];
 
     revalidatePath("/inventory");
-    return NextResponse.json({ ok: true, added });
+    return NextResponse.json({ ok: true, added, ids });
   } catch {
     return NextResponse.json(
       { error: "Could not save items. Try again." },

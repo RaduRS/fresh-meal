@@ -18,6 +18,7 @@ export function ManualAddItemFormClient(props: {
     | {
         id: string;
         name: string;
+        category: string;
         quantity: number;
         quantity_unit: QuantityUnit;
         calories_kcal_100g: number | null;
@@ -79,6 +80,7 @@ export function ManualAddItemFormClient(props: {
     <form action={props.action} className="rounded-xl border bg-card p-4">
       <div className="grid grid-cols-1 gap-4">
         {item ? <input type="hidden" name="id" value={item.id} /> : null}
+        {item ? <input type="hidden" name="category" value={item.category} /> : null}
 
         <div className="grid gap-2">
           <Label htmlFor="name">Item name</Label>
@@ -265,4 +267,3 @@ export function ManualAddItemFormClient(props: {
     </form>
   );
 }
-

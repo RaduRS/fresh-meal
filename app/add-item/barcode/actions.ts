@@ -3,8 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { normalizePantryItemName } from "@/lib/ai/item-name";
-import { suggestPantryCategory } from "@/lib/ai/category";
 import { insertPantryItem } from "@/lib/pantry";
 
 function parseQuantity(value: string): number {
@@ -52,10 +50,9 @@ export async function addBarcodeItemAction(formData: FormData) {
 
   if (!rawName) return;
 
-  const name = await normalizePantryItemName(rawName);
+  const name = rawName.trim().replace(/\s+/g, " ").slice(0, 80);
   if (!name) return;
-
-  const category = await suggestPantryCategory(name);
+  const category = "Other";
 
   const id = await insertPantryItem({
     name,
