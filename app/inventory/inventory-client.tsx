@@ -124,9 +124,14 @@ export function InventoryClient(props: {
   const [lazyEnriched, setLazyEnriched] = useState<
     Record<string, { name: string; category: string }>
   >({});
+  const [lazyEnrichFailed, setLazyEnrichFailed] = useState<
+    Record<string, true>
+  >({});
   const lazyEnrichInFlightRef = useRef(new Set<string>());
   const lazyEnrichQueuedRef = useRef(new Set<string>());
-  const lazyEnrichAttemptedRef = useRef(new Set<string>());
+  const lazyEnrichAttemptedRef = useRef(
+    new Map<string, { count: number; lastAttempt: number }>()
+  );
   const lazyEnrichQueueRef = useRef<string[]>([]);
   const lazyEnrichQueueCursorRef = useRef(0);
   const lazyEnrichRunnerActiveRef = useRef(false);
@@ -219,14 +224,30 @@ export function InventoryClient(props: {
   }, [itemsWithImages, lazyImageUrls]);
 
   useEffect(() => {
+    const now = Date.now();
+    const maxAttempts = 4;
     for (const item of props.items) {
       if (item.category !== "Other") continue;
       if (lazyEnriched[item.id]) continue;
+      if (lazyEnrichFailed[item.id]) continue;
       if (lazyEnrichInFlightRef.current.has(item.id)) continue;
       if (lazyEnrichQueuedRef.current.has(item.id)) continue;
-      if (lazyEnrichAttemptedRef.current.has(item.id)) continue;
+      const attempts = lazyEnrichAttemptedRef.current.get(item.id) ?? {
+        count: 0,
+        lastAttempt: 0,
+      };
+      if (attempts.count >= maxAttempts) {
+        setLazyEnrichFailed((prev) =>
+          prev[item.id] ? prev : { ...prev, [item.id]: true }
+        );
+        continue;
+      }
+      if (now - attempts.lastAttempt < 15000) continue;
       lazyEnrichQueuedRef.current.add(item.id);
-      lazyEnrichAttemptedRef.current.add(item.id);
+      lazyEnrichAttemptedRef.current.set(item.id, {
+        count: attempts.count + 1,
+        lastAttempt: now,
+      });
       lazyEnrichQueueRef.current.push(item.id);
     }
 
@@ -267,6 +288,12 @@ export function InventoryClient(props: {
               if (prev[id]) return prev;
               return { ...prev, [id]: { name, category } };
             });
+            setLazyEnrichFailed((prev) => {
+              if (!prev[id]) return prev;
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
           }
         } catch {
         } finally {
@@ -289,7 +316,7 @@ export function InventoryClient(props: {
         lazyEnrichQueuedRef.current.clear();
       }
     });
-  }, [props.items, lazyEnriched]);
+  }, [props.items, lazyEnriched, lazyEnrichFailed]);
 
   const categories = useMemo(() => {
     const set = new Set(itemsWithImages.map((i) => i.category).filter(Boolean));
@@ -387,7 +414,9 @@ export function InventoryClient(props: {
             const macroValues = macroChips(item);
             const isOpen = openId === item.id;
             const isEnrichmentPending =
-              item.category === "Other" && !lazyEnriched[item.id];
+              item.category === "Other" &&
+              !lazyEnriched[item.id] &&
+              !lazyEnrichFailed[item.id];
             const categoryLabel = isEnrichmentPending
               ? "Updating…"
               : item.category;

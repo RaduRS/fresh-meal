@@ -6,6 +6,7 @@ type WorkboxContext = {
   request: {
     destination: string;
     mode: string;
+    method: string;
   };
   url: {
     pathname: string;
@@ -43,7 +44,14 @@ const withPWA = nextPWA({
     {
       urlPattern: ({ url }: WorkboxContext) =>
         url.pathname.startsWith("/api/") || url.pathname.startsWith("/rest/"),
+      handler: "NetworkOnly",
+      method: "POST",
+    },
+    {
+      urlPattern: ({ url }: WorkboxContext) =>
+        url.pathname.startsWith("/api/") || url.pathname.startsWith("/rest/"),
       handler: "NetworkFirst",
+      method: "GET",
       options: {
         cacheName: "api",
         networkTimeoutSeconds: 6,
