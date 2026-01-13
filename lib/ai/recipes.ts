@@ -327,7 +327,9 @@ Rules:
     if (!title || !description) continue;
 
     const servings = clampInt(obj.servings, 1, 8, input.servings);
-    const timeMinutes = clampInt(obj.timeMinutes, 5, 180, 25);
+    const timeFallback =
+      typeof input.maxTimeMinutes === "number" ? input.maxTimeMinutes : 25;
+    const timeMinutes = clampInt(obj.timeMinutes, 5, 180, timeFallback);
     const missingIngredients = cleanStringList(obj.missingIngredients, 2);
     const ingredientsUsed = uniqueStringsByCanonical(
       cleanStringList(obj.ingredientsUsed, 30),
