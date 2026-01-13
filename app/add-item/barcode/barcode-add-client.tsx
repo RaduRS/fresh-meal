@@ -18,6 +18,8 @@ type LookupResult = {
   name: string;
   imageUrl: string | null;
   brand: string | null;
+  quantity: number;
+  quantityUnit: "count" | "g" | "ml";
   nutritionPer100g: {
     caloriesKcal: number | null;
     proteinG: number | null;
@@ -41,6 +43,13 @@ function readLookup(data: unknown): LookupResult | null {
   const name = typeof obj.name === "string" ? obj.name : "";
   const imageUrl = typeof obj.imageUrl === "string" ? obj.imageUrl : null;
   const brand = typeof obj.brand === "string" ? obj.brand : null;
+  const quantityRaw = Number(obj.quantity);
+  const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 1;
+  const quantityUnitRaw = typeof obj.quantityUnit === "string" ? obj.quantityUnit : "";
+  const quantityUnit =
+    quantityUnitRaw === "g" || quantityUnitRaw === "ml" || quantityUnitRaw === "count"
+      ? (quantityUnitRaw as "count" | "g" | "ml")
+      : "count";
   const nutritionRaw =
     obj.nutritionPer100g && typeof obj.nutritionPer100g === "object"
       ? (obj.nutritionPer100g as Record<string, unknown>)
@@ -68,7 +77,7 @@ function readLookup(data: unknown): LookupResult | null {
         : null,
   };
   if (!barcode.trim() || !name.trim()) return null;
-  return { barcode, name, imageUrl, brand, nutritionPer100g };
+  return { barcode, name, imageUrl, brand, quantity, quantityUnit, nutritionPer100g };
 }
 
 function BarcodeAddSubmitButton() {
@@ -210,7 +219,7 @@ export function BarcodeAddClient() {
                   inputMode="decimal"
                   min={0}
                   step="0.01"
-                  defaultValue={1}
+                  defaultValue={result.quantity}
                 />
               </div>
               <div className="grid gap-2">
@@ -218,7 +227,7 @@ export function BarcodeAddClient() {
                 <Select
                   id="quantityUnit"
                   name="quantityUnit"
-                  defaultValue="count"
+                  defaultValue={result.quantityUnit}
                 >
                   <option value="count">Count</option>
                   <option value="g">Grams (g)</option>

@@ -15,6 +15,65 @@ type OFFProductResponse = {
   };
 };
 
+function parseOffQuantity(
+  value: string | null | undefined
+): { quantity: number; quantityUnit: "g" | "ml" | "count" } | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw.toLowerCase().replace(/,/g, ".");
+
+  function toNumber(s: string) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function unitToBase(unit: string, amount: number) {
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    if (unit === "g") return { quantity: amount, quantityUnit: "g" as const };
+    if (unit === "kg")
+      return { quantity: amount * 1000, quantityUnit: "g" as const };
+    if (unit === "mg")
+      return { quantity: amount / 1000, quantityUnit: "g" as const };
+    if (unit === "ml") return { quantity: amount, quantityUnit: "ml" as const };
+    if (unit === "l")
+      return { quantity: amount * 1000, quantityUnit: "ml" as const };
+    if (unit === "cl")
+      return { quantity: amount * 10, quantityUnit: "ml" as const };
+    if (unit === "dl")
+      return { quantity: amount * 100, quantityUnit: "ml" as const };
+    return null;
+  }
+
+  function round2(n: number) {
+    return Math.round(n * 100) / 100;
+  }
+
+  const multi = normalized.match(
+    /(\d+(?:\.\d+)?)\s*(?:x|×|\*)\s*(\d+(?:\.\d+)?)\s*(kg|g|mg|l|ml|cl|dl)\b/i
+  );
+  if (multi) {
+    const a = toNumber(multi[1]);
+    const b = toNumber(multi[2]);
+    const unit = multi[3];
+    if (typeof a === "number" && typeof b === "number") {
+      const base = unitToBase(unit, a * b);
+      if (base) return { ...base, quantity: round2(base.quantity) };
+    }
+  }
+
+  const single = normalized.match(/(\d+(?:\.\d+)?)\s*(kg|g|mg|l|ml|cl|dl)\b/i);
+  if (single) {
+    const amount = toNumber(single[1]);
+    const unit = single[2];
+    if (typeof amount === "number") {
+      const base = unitToBase(unit, amount);
+      if (base) return { ...base, quantity: round2(base.quantity) };
+    }
+  }
+
+  return null;
+}
+
 function pickName(p: OFFProductResponse["product"]) {
   const name = p?.product_name?.trim() || p?.product_name_en?.trim() || "";
   return name;
@@ -107,11 +166,15 @@ export async function GET(req: Request) {
     const fatG = offNutrition.fatG ?? aiNutrition?.fatG ?? null;
     const sugarG = offNutrition.sugarG ?? aiNutrition?.sugarG ?? null;
 
+    const amount = parseOffQuantity(data.product.quantity);
+
     return NextResponse.json({
       barcode,
       name,
       imageUrl: pickImage(data.product),
       brand: data.product.brands ?? null,
+      quantity: amount?.quantity ?? 1,
+      quantityUnit: amount?.quantityUnit ?? "count",
       nutritionPer100g: {
         caloriesKcal:
           typeof caloriesKcal === "number"
