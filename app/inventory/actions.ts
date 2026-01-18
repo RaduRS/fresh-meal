@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  consumePantryIngredients,
   insertPantryItem,
   normalizeCategory,
   softDeletePantryItem,
@@ -98,4 +99,18 @@ export async function deletePantryItemAction(formData: FormData) {
   await softDeletePantryItem(id);
   await deletePantryItemImage({ id }).catch(() => null);
   revalidatePath("/inventory");
+}
+
+export async function consumeRecipeIngredientsAction(input: {
+  ingredients: Array<{
+    name: string;
+    quantity: number;
+    quantityUnit: "count" | "g" | "ml";
+  }>;
+}) {
+  const result = await consumePantryIngredients({
+    ingredients: input.ingredients,
+  });
+  revalidatePath("/inventory");
+  return result;
 }

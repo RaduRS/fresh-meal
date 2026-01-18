@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 
+import { consumeRecipeIngredientsAction } from "@/app/inventory/actions";
 import { Button } from "@/components/ui/button";
 import { MacroSummary } from "@/components/ui/macro-summary";
 
@@ -47,6 +48,15 @@ function readLastResults(): Recipe[] {
   }
 }
 
+function readConsumedRecipeFlag(recipeId: string) {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(`recipes:consumed:${recipeId}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function RecipeDetailClient(props: { id: string }) {
   const recipe = useMemo(() => {
     const list = readLastResults();
@@ -55,6 +65,65 @@ export function RecipeDetailClient(props: { id: string }) {
       null
     );
   }, [props.id]);
+
+  const [consumeStatus, setConsumeStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+  const [consumeMessage, setConsumeMessage] = useState<string | null>(null);
+  const [consumedOverride, setConsumedOverride] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const alreadyConsumed = useMemo(() => {
+    if (consumedOverride) return true;
+    if (!recipe?.id) return false;
+    return readConsumedRecipeFlag(recipe.id);
+  }, [consumedOverride, recipe]);
+
+  const consumableIngredients = useMemo(() => {
+    if (!recipe?.ingredientsUsedDetailed?.length) return [];
+    return recipe.ingredientsUsedDetailed
+      .map((i) => {
+        const quantity = i.quantity;
+        const quantityUnit = i.quantityUnit;
+        if (
+          typeof quantity !== "number" ||
+          !Number.isFinite(quantity) ||
+          quantity <= 0
+        )
+          return null;
+        if (
+          quantityUnit !== "count" &&
+          quantityUnit !== "g" &&
+          quantityUnit !== "ml"
+        )
+          return null;
+        return {
+          name: i.name,
+          quantity,
+          quantityUnit,
+        };
+      })
+      .filter(
+        (
+          x,
+        ): x is {
+          name: string;
+          quantity: number;
+          quantityUnit: "count" | "g" | "ml";
+        } => x !== null,
+      );
+  }, [recipe]);
+
+  useEffect(() => {
+    if (!confirmOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (consumeStatus === "loading") return;
+      setConfirmOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmOpen, consumeStatus]);
 
   if (!recipe) {
     return (
@@ -101,6 +170,136 @@ export function RecipeDetailClient(props: { id: string }) {
             <MacroSummary macros={recipe.macrosPerServing} showSugar />
           </div>
         ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          <Button
+            type="button"
+            className="w-full"
+            disabled={consumeStatus === "loading" || alreadyConsumed}
+            onClick={() => {
+              if (!recipe) return;
+              if (alreadyConsumed) return;
+
+              if (consumableIngredients.length === 0) {
+                setConsumeStatus("error");
+                setConsumeMessage(
+                  "This recipe is missing per-ingredient quantities, so pantry subtraction isn’t available.",
+                );
+                return;
+              }
+
+              setConfirmOpen(true);
+            }}
+          >
+            {alreadyConsumed
+              ? "Already Cooked"
+              : consumeStatus === "loading"
+                ? "Subtracting…"
+                : "Cooked it"}
+          </Button>
+
+          {consumeMessage ? (
+            <div
+              className={
+                consumeStatus === "error"
+                  ? "text-sm text-red-600"
+                  : "text-sm text-muted-foreground"
+              }
+            >
+              {consumeMessage}
+            </div>
+          ) : null}
+
+          {confirmOpen ? (
+            <div className="fixed inset-0 z-50">
+              <div
+                className="absolute inset-0 bg-black/50"
+                onClick={() => {
+                  if (consumeStatus === "loading") return;
+                  setConfirmOpen(false);
+                }}
+              />
+              <div className="absolute inset-x-0 bottom-0 p-4 sm:inset-0 sm:flex sm:items-center sm:justify-center">
+                <div className="w-full max-w-md rounded-xl border bg-card p-4 shadow-lg">
+                  <div className="text-base font-semibold tracking-tight">
+                    Subtract from pantry?
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    This will subtract the ingredients used in this recipe from
+                    your pantry. This can’t be undone.
+                  </div>
+
+                  <div className="mt-4 max-h-64 overflow-auto rounded-lg border bg-background">
+                    <ul className="divide-y">
+                      {consumableIngredients.map((i) => (
+                        <li
+                          key={`${i.name}|${i.quantity}|${i.quantityUnit}`}
+                          className="flex items-center justify-between gap-3 px-3 py-2"
+                        >
+                          <div className="min-w-0 flex-1 text-sm">{i.name}</div>
+                          <div className="shrink-0 text-xs text-muted-foreground">
+                            {i.quantityUnit === "count"
+                              ? `${Math.round(i.quantity)} ${i.name}`
+                              : `${Math.round(i.quantity)} ${i.quantityUnit}`}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={consumeStatus === "loading"}
+                      onClick={() => setConfirmOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={consumeStatus === "loading"}
+                      onClick={async () => {
+                        if (alreadyConsumed) return;
+
+                        setConsumeStatus("loading");
+                        setConsumeMessage(null);
+                        try {
+                          const res = await consumeRecipeIngredientsAction({
+                            ingredients: consumableIngredients,
+                          });
+                          if (!res.ok) throw new Error("Pantry update failed.");
+                          try {
+                            window.localStorage.setItem(
+                              `recipes:consumed:${recipe.id}`,
+                              "1",
+                            );
+                          } catch {}
+                          setConsumedOverride(true);
+                          setConsumeStatus("success");
+                          setConsumeMessage(
+                            res.skipped > 0
+                              ? "Pantry updated (some items couldn’t be matched)."
+                              : "Pantry updated.",
+                          );
+                          setConfirmOpen(false);
+                        } catch {
+                          setConsumeStatus("error");
+                          setConsumeMessage(
+                            "Could not update pantry. Try again.",
+                          );
+                        }
+                      }}
+                    >
+                      {consumeStatus === "loading" ? "Subtracting…" : "Confirm"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {recipe.missingIngredients.length ? (
