@@ -72,6 +72,8 @@ export function RecipeDetailClient(props: { id: string }) {
   const [consumeMessage, setConsumeMessage] = useState<string | null>(null);
   const [consumedOverride, setConsumedOverride] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [shoppingMessage, setShoppingMessage] = useState<string | null>(null);
+  const [shoppingCopied, setShoppingCopied] = useState(false);
 
   const alreadyConsumed = useMemo(() => {
     if (consumedOverride) return true;
@@ -124,6 +126,12 @@ export function RecipeDetailClient(props: { id: string }) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [confirmOpen, consumeStatus]);
+
+  useEffect(() => {
+    if (!shoppingCopied) return;
+    const t = window.setTimeout(() => setShoppingCopied(false), 1200);
+    return () => window.clearTimeout(t);
+  }, [shoppingCopied]);
 
   if (!recipe) {
     return (
@@ -304,12 +312,62 @@ export function RecipeDetailClient(props: { id: string }) {
 
       {recipe.missingIngredients.length ? (
         <div className="rounded-xl border bg-card p-4">
-          <div className="text-sm font-medium">Missing (max 2)</div>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">Shopping list</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Missing ingredients for this recipe.
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                const text = recipe.missingIngredients.join("\n");
+                try {
+                  await navigator.clipboard.writeText(text);
+                  setShoppingMessage(null);
+                  setShoppingCopied(true);
+                } catch {
+                  setShoppingCopied(false);
+                  setShoppingMessage(
+                    "Could not copy. Select and copy manually.",
+                  );
+                }
+              }}
+            >
+              {shoppingCopied ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4 animate-in zoom-in-50 fade-in duration-200"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                  <span className="animate-in fade-in duration-200">
+                    Copied
+                  </span>
+                </span>
+              ) : (
+                "Copy"
+              )}
+            </Button>
+          </div>
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
             {recipe.missingIngredients.map((m) => (
               <li key={m}>{m}</li>
             ))}
           </ul>
+          {shoppingMessage ? (
+            <div className="mt-2 text-xs text-red-600">{shoppingMessage}</div>
+          ) : null}
         </div>
       ) : null}
 

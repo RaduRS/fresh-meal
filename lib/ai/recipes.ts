@@ -269,10 +269,12 @@ Pantry items with available quantity + macros per 100g:
 ${JSON.stringify(pantry)}
 
 Task:
-- Generate 3 recipes.
+- Generate 5 recipes total.
 - If a time limit is provided, timeMinutes must be <= that limit.
-- Strong preference: missingIngredients must be [] (zero missing items).
-- If you truly cannot make 3 recipes with zero missing, you may include at most 2 missing items, but only if pantryCoverage >= 80.
+- Recipes 1-3: missingIngredients must be [] (zero missing items).
+- Recipes 4-5: missingIngredients must NOT be empty. Aim for ~30% missing overall:
+  missingIngredients.length / (missingIngredients.length + ingredientsUsed.length) should be between 0.2 and 0.4.
+  Keep missingIngredients to 2-6 items and make them cohesive (e.g., a sauce + spice + garnish that make the dish better).
 - Avoid brand names in ingredient lists; use generic ingredient terms.
 - Prefer dinner-friendly options if meal type is dinner.
 - Keep steps short and actionable (mobile friendly).
@@ -303,121 +305,186 @@ Rules:
   - pantryCoverage: integer 0-100
   - No markdown, no extra keys, no extra text.`;
 
-  const text = await generateTextWithChatProviders({ prompt });
-
-  const jsonText = extractJsonObject(text);
-  if (!jsonText) throw new Error("AI provider returned non-JSON output");
-
-  const parsed = JSON.parse(jsonText) as unknown;
-  const rawRecipes =
-    parsed && typeof parsed === "object" && "recipes" in parsed
-      ? (parsed as { recipes?: unknown }).recipes
-      : null;
-
-  if (!Array.isArray(rawRecipes)) return [];
-
   const zeroMissing: AiRecipe[] = [];
-  const acceptableMissing: AiRecipe[] = [];
+  const preferredMissing: AiRecipe[] = [];
+  const fallbackMissing: AiRecipe[] = [];
 
-  for (const v of rawRecipes) {
-    if (!v || typeof v !== "object") continue;
-    const obj = v as Record<string, unknown>;
-    const title = cleanString(obj.title);
-    const description = cleanString(obj.description);
-    if (!title || !description) continue;
+  const seenIds = new Set<string>();
 
-    const servings = clampInt(obj.servings, 1, 8, input.servings);
-    const timeFallback =
-      typeof input.maxTimeMinutes === "number" ? input.maxTimeMinutes : 25;
-    const timeMinutes = clampInt(obj.timeMinutes, 5, 180, timeFallback);
-    const missingIngredients = cleanStringList(obj.missingIngredients, 2);
-    const ingredientsUsed = uniqueStringsByCanonical(
-      cleanStringList(obj.ingredientsUsed, 30),
-      14
-    );
-    const ingredientAmountsG = readIngredientAmounts(obj.ingredientAmountsG)
-      .filter((a) =>
-        ingredientsUsed.some((i) => canonicalize(i) === canonicalize(a.name))
+  async function getRawRecipes(promptText: string) {
+    const text = await generateTextWithChatProviders({ prompt: promptText });
+    const jsonText = extractJsonObject(text);
+    if (!jsonText) return [];
+    const parsed = JSON.parse(jsonText) as unknown;
+    const raw =
+      parsed && typeof parsed === "object" && "recipes" in parsed
+        ? (parsed as { recipes?: unknown }).recipes
+        : null;
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  function considerRawRecipes(rawRecipes: unknown[]) {
+    for (const v of rawRecipes) {
+      if (!v || typeof v !== "object") continue;
+      const obj = v as Record<string, unknown>;
+      const title = cleanString(obj.title);
+      const description = cleanString(obj.description);
+      if (!title || !description) continue;
+
+      const servings = clampInt(obj.servings, 1, 8, input.servings);
+      const timeFallback =
+        typeof input.maxTimeMinutes === "number" ? input.maxTimeMinutes : 25;
+      const timeMinutes = clampInt(obj.timeMinutes, 5, 180, timeFallback);
+      const missingIngredients = cleanStringList(obj.missingIngredients, 10);
+      const ingredientsUsed = uniqueStringsByCanonical(
+        cleanStringList(obj.ingredientsUsed, 30),
+        14,
+      );
+      const ingredientAmountsG = readIngredientAmounts(obj.ingredientAmountsG)
+        .filter((a) =>
+          ingredientsUsed.some((i) => canonicalize(i) === canonicalize(a.name)),
+        )
+        .slice(0, 14);
+      const steps = cleanStringList(obj.steps, 12).slice(0, 10);
+      const computedCoverage = computeCoveragePercent(
+        pantryNames,
+        ingredientsUsed,
+      );
+      const pantryCoverage = Math.min(
+        clampInt(obj.pantryCoverage, 0, 100, computedCoverage),
+        computedCoverage,
+      );
+      if (steps.length < 4) continue;
+      if (
+        typeof input.maxTimeMinutes === "number" &&
+        timeMinutes > input.maxTimeMinutes
       )
-      .slice(0, 14);
-    const steps = cleanStringList(obj.steps, 12).slice(0, 10);
-    const pantryCoverage = clampInt(
-      obj.pantryCoverage,
-      0,
-      100,
-      computeCoveragePercent(pantryNames, ingredientsUsed)
-    );
-    if (steps.length < 4) continue;
-    if (
-      typeof input.maxTimeMinutes === "number" &&
-      timeMinutes > input.maxTimeMinutes
-    )
-      continue;
-    let withinLimits = true;
-    for (const a of ingredientAmountsG) {
-      const key = canonicalize(a.name);
-      if (!key) continue;
-      const available = availableByKey.get(key);
-      if (!available) continue;
-      if (available.unit === "count") {
-        if (a.quantityUnit !== "count" || typeof a.quantity !== "number") {
+        continue;
+      let withinLimits = true;
+      for (const a of ingredientAmountsG) {
+        const key = canonicalize(a.name);
+        if (!key) continue;
+        const available = availableByKey.get(key);
+        if (!available) continue;
+        if (available.unit === "count") {
+          if (a.quantityUnit !== "count" || typeof a.quantity !== "number") {
+            withinLimits = false;
+            break;
+          }
+          if (a.quantity > available.quantity) {
+            withinLimits = false;
+            break;
+          }
+          const perUnit = a.amountG / a.quantity;
+          if (!Number.isFinite(perUnit) || perUnit < 10 || perUnit > 300) {
+            withinLimits = false;
+            break;
+          }
+          continue;
+        }
+        if (typeof a.amountG !== "number" || !Number.isFinite(a.amountG))
+          continue;
+        if (a.amountG > available.quantity) {
           withinLimits = false;
           break;
         }
-        if (a.quantity > available.quantity) {
-          withinLimits = false;
-          break;
-        }
-        const perUnit = a.amountG / a.quantity;
-        if (!Number.isFinite(perUnit) || perUnit < 10 || perUnit > 300) {
-          withinLimits = false;
-          break;
-        }
+      }
+      if (!withinLimits) continue;
+
+      const id = makeId(`${title}|${ingredientsUsed.join("|")}`);
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      const recipe: AiRecipe = {
+        id,
+        title,
+        description,
+        servings,
+        timeMinutes,
+        pantryCoverage,
+        missingIngredients,
+        ingredientsUsed,
+        ingredientAmountsG,
+        steps,
+        imageUrl: null,
+        macrosPerServing: null,
+      };
+
+      if (missingIngredients.length === 0) {
+        if (computedCoverage !== 100) continue;
+        zeroMissing.push(recipe);
         continue;
       }
-      if (typeof a.amountG !== "number" || !Number.isFinite(a.amountG))
-        continue;
-      if (a.amountG > available.quantity) {
-        withinLimits = false;
-        break;
-      }
-    }
-    if (!withinLimits) continue;
 
-    const id = makeId(`${title}|${ingredientsUsed.join("|")}`);
-    const recipe: AiRecipe = {
-      id,
-      title,
-      description,
-      servings,
-      timeMinutes,
-      pantryCoverage,
-      missingIngredients,
-      ingredientsUsed,
-      ingredientAmountsG,
-      steps,
-      imageUrl: null,
-      macrosPerServing: null,
-    };
-
-    if (missingIngredients.length === 0) {
-      zeroMissing.push(recipe);
-      continue;
-    }
-
-    if (missingIngredients.length <= 2 && pantryCoverage >= 80) {
-      acceptableMissing.push(recipe);
+      const totalIngredients =
+        ingredientsUsed.length + missingIngredients.length;
+      const missingRatio =
+        totalIngredients > 0 ? missingIngredients.length / totalIngredients : 0;
+      if (
+        computedCoverage >= 70 &&
+        missingIngredients.length >= 1 &&
+        missingIngredients.length <= 6 &&
+        missingRatio >= 0.15 &&
+        missingRatio <= 0.45
+      )
+        preferredMissing.push(recipe);
+      else if (
+        computedCoverage >= 50 &&
+        missingIngredients.length >= 1 &&
+        missingIngredients.length <= 10 &&
+        missingRatio <= 0.65
+      )
+        fallbackMissing.push(recipe);
     }
   }
 
-  const out: AiRecipe[] = [];
-  for (const r of zeroMissing) {
-    out.push(r);
-    if (out.length >= 3) return out;
+  considerRawRecipes(await getRawRecipes(prompt));
+
+  function buildOut() {
+    const out: AiRecipe[] = [];
+    for (const r of zeroMissing) {
+      out.push(r);
+      if (out.length >= 3) break;
+    }
+    for (const r of preferredMissing) {
+      if (out.length >= 5) return out;
+      if (out.some((x) => x.id === r.id)) continue;
+      out.push(r);
+    }
+    for (const r of fallbackMissing) {
+      if (out.length >= 5) return out;
+      if (out.some((x) => x.id === r.id)) continue;
+      out.push(r);
+    }
+    return out;
   }
-  for (const r of acceptableMissing) {
-    out.push(r);
-    if (out.length >= 3) return out;
-  }
-  return out;
+
+  const out1 = buildOut();
+  if (out1.length >= 5) return out1;
+
+  const missingOnlyPrompt = `You are a friendly chef for a mobile pantry app.
+
+User context:
+- Meal type: ${input.mealType}
+- Who's eating: ${input.who}
+- Desired servings: ${input.servings}
+- Dietary preference: ${normalizeDietLabel(input.diet)}
+
+Pantry items with available quantity + macros per 100g:
+${JSON.stringify(pantry)}
+
+Task:
+- Generate 2 recipes.
+- missingIngredients must NOT be empty.
+- Keep missingIngredients to 2-8 items.
+- Aim for ~30% missing overall:
+  missingIngredients.length / (missingIngredients.length + ingredientsUsed.length) should be between 0.2 and 0.5.
+- Use pantry items for the core of the recipe, and missingIngredients should be cohesive "nice-to-have" items.
+- If a time limit is provided, timeMinutes must be <= that limit.
+- Avoid brand names. Keep steps short.
+
+Return ONLY valid JSON with this exact shape:
+{"recipes":[{"title":"...","description":"...","servings":2,"timeMinutes":25,"pantryCoverage":80,"missingIngredients":["..."],"ingredientsUsed":["..."],"ingredientAmountsG":[{"name":"...","amountG":123,"quantity":2,"quantityUnit":"count"}],"steps":["..."]}]}`;
+
+  considerRawRecipes(await getRawRecipes(missingOnlyPrompt));
+  return buildOut();
 }

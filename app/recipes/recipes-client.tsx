@@ -126,8 +126,8 @@ function getStoredFilters() {
     obj.maxTimeMinutes === null || typeof obj.maxTimeMinutes === "undefined"
       ? null
       : Number.isFinite(maxTimeMinutesRaw)
-      ? Math.max(5, Math.min(180, Math.floor(maxTimeMinutesRaw)))
-      : null;
+        ? Math.max(5, Math.min(180, Math.floor(maxTimeMinutesRaw)))
+        : null;
 
   return { mealType, who, servings, diet, maxTimeMinutes };
 }
@@ -174,8 +174,8 @@ export function RecipesClient() {
       mealType === "breakfast"
         ? "Breakfast"
         : mealType === "lunch"
-        ? "Lunch"
-        : "Dinner";
+          ? "Lunch"
+          : "Dinner";
     const timeLabel =
       typeof maxTimeMinutes === "number" ? `${maxTimeMinutes} min` : "No limit";
     return `${mealLabel} • ${whoLabel} • Servings ${servings} • ${timeLabel}`;
@@ -303,7 +303,7 @@ export function RecipesClient() {
                     data && typeof data === "object" && "error" in data
                       ? String(
                           (data as { error?: unknown }).error ??
-                            "Recipe search failed."
+                            "Recipe search failed.",
                         )
                       : "Recipe search failed.";
                   setError(msg);
@@ -328,11 +328,11 @@ export function RecipesClient() {
                       diet,
                       servings,
                       maxTimeMinutes,
-                    })
+                    }),
                   );
                   window.localStorage.setItem(
                     "recipes:lastResults",
-                    JSON.stringify(next)
+                    JSON.stringify(next),
                   );
                 } catch {}
               } catch {
