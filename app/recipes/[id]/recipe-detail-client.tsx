@@ -219,7 +219,7 @@ export function RecipeDetailClient(props: { id: string }) {
           ) : null}
 
           {confirmOpen ? (
-            <div className="fixed inset-0 z-50">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pb-[calc(theme(spacing.4)+env(safe-area-inset-bottom))]">
               <div
                 className="absolute inset-0 bg-black/50"
                 onClick={() => {
@@ -227,17 +227,19 @@ export function RecipeDetailClient(props: { id: string }) {
                   setConfirmOpen(false);
                 }}
               />
-              <div className="absolute inset-x-0 bottom-0 p-4 sm:inset-0 sm:flex sm:items-center sm:justify-center">
-                <div className="w-full max-w-md rounded-xl border bg-card p-4 shadow-lg">
-                  <div className="text-base font-semibold tracking-tight">
+              <div className="relative w-full max-w-md">
+                <div className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-bottom))] w-full flex-col overflow-hidden rounded-xl border bg-card shadow-lg">
+                  <div className="p-4">
+                    <div className="text-base font-semibold tracking-tight">
                     Subtract from pantry?
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    This will subtract the ingredients used in this recipe from
-                    your pantry. This can’t be undone.
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      This will subtract the ingredients used in this recipe
+                      from your pantry. This can’t be undone.
+                    </div>
                   </div>
 
-                  <div className="mt-4 max-h-64 overflow-auto rounded-lg border bg-background">
+                  <div className="mx-4 flex-1 overflow-auto rounded-lg border bg-background">
                     <ul className="divide-y">
                       {consumableIngredients.map((i) => (
                         <li
@@ -255,7 +257,7 @@ export function RecipeDetailClient(props: { id: string }) {
                     </ul>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="mt-4 grid grid-cols-2 gap-2 p-4 pt-0">
                     <Button
                       type="button"
                       variant="secondary"
